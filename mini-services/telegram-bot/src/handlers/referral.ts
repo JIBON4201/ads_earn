@@ -26,18 +26,18 @@ export const referralHandler: BotMiddleware = async (ctx) => {
 
   const totalReferralEarnings = referralTransactions.reduce((sum: number, t: { amount: number }) => sum + t.amount, 0);
 
-  let msg = `🎁 *Referral Program*\\n\\n`;
-  msg += `🔗 *Your Referral Link:*\\n${referralLink}\\n\\n`;
-  msg += `📊 *Your Stats:*\\n`;
-  msg += `👥 Total Referrals: *${user.referralCount}*\\n`;
-  msg += `💰 Referral Earnings: *${totalReferralEarnings.toFixed(2)} TK*\\n\\n`;
+  let msg = `🎁 *Referral Program*\n\n`;
+  msg += `🔗 *Your Referral Link:*\n${referralLink}\n\n`;
+  msg += `📊 *Your Stats:*\n`;
+  msg += `👥 Total Referrals: *${user.referralCount}*\n`;
+  msg += `💰 Referral Earnings: *${totalReferralEarnings.toFixed(2)} TK*\n\n`;
 
   if (referredUsers.length > 0) {
-    msg += `*Recent Referrals:*\\n`;
+    msg += `*Recent Referrals:*\n`;
     for (const ref of referredUsers) {
-      msg += `  • ${ref.firstName} — ${ref.createdAt.toLocaleDateString()}\\n`;
+      msg += `  • ${ref.firstName} — ${ref.createdAt.toLocaleDateString()}\n`;
     }
-    msg += '\\n';
+    msg += '\n';
   }
 
   msg += `Share your link with friends and earn bonus points for each referral!`;

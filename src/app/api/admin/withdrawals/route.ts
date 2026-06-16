@@ -51,23 +51,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (action === 'approve') {
-      // Deduct from user balance
-      const newBalance = Math.max(0, withdrawal.user.balance - withdrawal.amount)
-      await db.botUser.update({
-        where: { id: withdrawal.userId },
-        data: { balance: newBalance },
-      })
-
-      // Create transaction
-      await db.transaction.create({
-        data: {
-          userId: withdrawal.userId,
-          type: 'withdrawal',
-          amount: -withdrawal.amount,
-          balanceAfter: newBalance,
-          description: `Withdrawal approved: ${withdrawal.amount} TK via ${withdrawal.paymentMethod}`,
-        },
-      })
+      // Note: Balance was already deducted when the withdrawal was created.
+      // We only update the withdrawal status here.
+      // If we need to refund on rejection, that logic is in the reject branch.
 
       const updated = await db.withdrawal.update({
         where: { id: withdrawalId },
@@ -83,6 +69,23 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (action === 'reject') {
+      // Refund the balance since it was deducted on withdrawal creation
+      const refundBalance = withdrawal.user.balance + withdrawal.amount
+      await db.botUser.update({
+        where: { id: withdrawal.userId },
+        data: { balance: refundBalance },
+      })
+
+      await db.transaction.create({
+        data: {
+          userId: withdrawal.userId,
+          type: 'admin_adjust',
+          amount: withdrawal.amount,
+          balanceAfter: refundBalance,
+          description: `Withdrawal rejected — ${withdrawal.amount} TK refunded (${withdrawal.paymentMethod})`,
+        },
+      })
+
       const updated = await db.withdrawal.update({
         where: { id: withdrawalId },
         data: {

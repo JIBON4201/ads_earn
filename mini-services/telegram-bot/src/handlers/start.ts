@@ -25,19 +25,19 @@ export const startHandler: BotMiddleware = async (ctx) => {
 
   if (isNewUser || isNew) {
     await ctx.reply(
-      `🎉 Welcome to *AdEarn Bot*, ${user.firstName}!\\n\\n` +
-      `Earn real money by watching ads. Watch → Earn → Withdraw!\\n\\n` +
-      `🪙 Your balance: *${user.balance.toFixed(2)} TK*\\n` +
-      `👑 VIP Level: *${user.vipLevel}*\\n\\n` +
+      `🎉 Welcome to *AdEarn Bot*, ${user.firstName}!\n\n` +
+      `Earn real money by watching ads. Watch → Earn → Withdraw!\n\n` +
+      `🪙 Your balance: *${user.balance.toFixed(2)} TK*\n` +
+      `👑 VIP Level: *${user.vipLevel}*\n\n` +
       `Choose an option below to get started:`,
       { parse_mode: 'Markdown', reply_markup: MENU_KEYBOARD },
     );
   } else {
     await ctx.reply(
-      `👋 Welcome back, ${user.firstName}!\\n\\n` +
-      `🪙 Balance: *${user.balance.toFixed(2)} TK*\\n` +
-      `💰 Total Earned: *${user.totalEarned.toFixed(2)} TK*\\n` +
-      `👑 VIP Level: *${user.vipLevel}*\\n\\n` +
+      `👋 Welcome back, ${user.firstName}!\n\n` +
+      `🪙 Balance: *${user.balance.toFixed(2)} TK*\n` +
+      `💰 Total Earned: *${user.totalEarned.toFixed(2)} TK*\n` +
+      `👑 VIP Level: *${user.vipLevel}*\n\n` +
       `What would you like to do?`,
       { parse_mode: 'Markdown', reply_markup: MENU_KEYBOARD },
     );

@@ -14,10 +14,10 @@ export const balanceHandler: BotMiddleware = async (ctx) => {
   const user = ctx.dbUser!;
 
   const text =
-    `💰 *Your Balance*\\n\\n` +
-    `🪙 Available Balance: *${user.balance.toFixed(2)} TK*\\n` +
-    `📊 Total Earned: *${user.totalEarned.toFixed(2)} TK*\\n` +
-    `👑 VIP Level: *${user.vipLevel}*\\n\\n` +
+    `💰 *Your Balance*\n\n` +
+    `🪙 Available Balance: *${user.balance.toFixed(2)} TK*\n` +
+    `📊 Total Earned: *${user.totalEarned.toFixed(2)} TK*\n` +
+    `👑 VIP Level: *${user.vipLevel}*\n\n` +
     `Keep watching ads to earn more!`;
 
   if (ctx.callbackQuery) {
@@ -36,10 +36,10 @@ export const mainMenuCallback: BotMiddleware = async (ctx) => {
 
   const user = ctx.dbUser!;
   const text =
-    `👋 Welcome back, ${user.firstName}!\\n\\n` +
-    `🪙 Balance: *${user.balance.toFixed(2)} TK*\\n` +
-    `💰 Total Earned: *${user.totalEarned.toFixed(2)} TK*\\n` +
-    `👑 VIP Level: *${user.vipLevel}*\\n\\n` +
+    `👋 Welcome back, ${user.firstName}!\n\n` +
+    `🪙 Balance: *${user.balance.toFixed(2)} TK*\n` +
+    `💰 Total Earned: *${user.totalEarned.toFixed(2)} TK*\n` +
+    `👑 VIP Level: *${user.vipLevel}*\n\n` +
     `What would you like to do?`;
 
   await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: mainMenuKeyboard() });

@@ -21,8 +21,8 @@ export const watchAdHandler: BotMiddleware = async (ctx) => {
       [['🔙 Main Menu', 'menu:main']],
     ]);
     const text =
-      `⏰ *Daily Ad Limit Reached*\\n\\n` +
-      `You have watched *${todayWatchCount}/${dailyLimit}* ads today.\\n\\n` +
+      `⏰ *Daily Ad Limit Reached*\n\n` +
+      `You have watched *${todayWatchCount}/${dailyLimit}* ads today.\n\n` +
       `Upgrade your VIP level to increase your daily limit!`;
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
@@ -34,7 +34,7 @@ export const watchAdHandler: BotMiddleware = async (ctx) => {
 
   if (ads.length === 0) {
     const text =
-      `📭 *No Ads Available*\\n\\n` +
+      `📭 *No Ads Available*\n\n` +
       `There are no active ads at the moment. Please check back later!`;
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: BACK_KEYBOARD });
@@ -53,11 +53,11 @@ export const watchAdHandler: BotMiddleware = async (ctx) => {
   ]);
 
   const text =
-    `🎬 *Watch Ad & Earn*\\n\\n` +
-    `📌 *${ad.title}*\\n` +
-    `💰 Reward: *${ad.rewardPoints.toFixed(2)} TK*\\n` +
-    `⏱ Duration: *${ad.requiredSeconds} seconds*\\n` +
-    `📊 Today: *${todayWatchCount}/${dailyLimit}* (remaining: ${remaining})\\n\\n` +
+    `🎬 *Watch Ad & Earn*\n\n` +
+    `📌 *${ad.title}*\n` +
+    `💰 Reward: *${ad.rewardPoints.toFixed(2)} TK*\n` +
+    `⏱ Duration: *${ad.requiredSeconds} seconds*\n` +
+    `📊 Today: *${todayWatchCount}/${dailyLimit}* (remaining: ${remaining})\n\n` +
     `Click "Watch Now" to start watching this ad.`;
 
   if (ctx.callbackQuery) {
@@ -88,13 +88,13 @@ export const adWatchCallback: BotMiddleware = async (ctx) => {
 
     await ctx.answerCbQuery('▶️ Ad session started! Watch the ad now.');
     await ctx.editMessageText(
-      `▶️ *Ad Session Started*\\n\\n` +
-      `📌 *${ad.title}*\\n` +
-      `💰 Reward: *${ad.rewardPoints.toFixed(2)} TK*\\n\\n` +
-      `1️⃣ Open the ad link below\\n` +
-      `2️⃣ Watch for *${ad.requiredSeconds} seconds*\\n` +
-      `3️⃣ Click "I Watched It" to claim your reward\\n\\n` +
-      `🔗 [Open Ad](${ad.url})\\n\\n` +
+      `▶️ *Ad Session Started*\n\n` +
+      `📌 *${ad.title}*\n` +
+      `💰 Reward: *${ad.rewardPoints.toFixed(2)} TK*\n\n` +
+      `1️⃣ Open the ad link below\n` +
+      `2️⃣ Watch for *${ad.requiredSeconds} seconds*\n` +
+      `3️⃣ Click "I Watched It" to claim your reward\n\n` +
+      `🔗 [Open Ad](${ad.url})\n\n` +
       `⏳ Waiting for you to finish...`,
       {
         parse_mode: 'Markdown',
@@ -141,10 +141,10 @@ export const adClaimCallback: BotMiddleware = async (ctx) => {
     await ctx.answerCbQuery(`🎉 +${pointsEarned.toFixed(2)} TK earned!`);
 
     await ctx.editMessageText(
-      `✅ *Reward Claimed!*\\n\\n` +
-      `📌 Ad: *${adTitle}*\\n` +
-      `💰 Earned: *+${pointsEarned.toFixed(2)} TK*${boostText}\\n` +
-      `🪙 New Balance: *${(user.balance + pointsEarned).toFixed(2)} TK*\\n\\n` +
+      `✅ *Reward Claimed!*\n\n` +
+      `📌 Ad: *${adTitle}*\n` +
+      `💰 Earned: *+${pointsEarned.toFixed(2)} TK*${boostText}\n` +
+      `🪙 New Balance: *${(user.balance + pointsEarned).toFixed(2)} TK*\n\n` +
       `Great job! Keep watching ads to earn more!`,
       { parse_mode: 'Markdown', reply_markup: keyboard },
     );

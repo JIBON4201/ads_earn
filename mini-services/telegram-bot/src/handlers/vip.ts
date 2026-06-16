@@ -24,9 +24,9 @@ export const vipHandler: BotMiddleware = async (ctx) => {
     return;
   }
 
-  let msg = `👑 *VIP Upgrade Center*\\n\\n`;
-  msg += `Your current level: *Level ${user.vipLevel}*${currentTier ? ` — ${currentTier.name}` : ''}\\n\\n`;
-  msg += `*Available Tiers:*\\n\\n`;
+  let msg = `👑 *VIP Upgrade Center*\n\n`;
+  msg += `Your current level: *Level ${user.vipLevel}*${currentTier ? ` — ${currentTier.name}` : ''}\n\n`;
+  msg += `*Available Tiers:*\n\n`;
 
   const buttons: Array<Array<[string, string]>> = [];
 
@@ -35,10 +35,10 @@ export const vipHandler: BotMiddleware = async (ctx) => {
     const isLower = tier.level < user.vipLevel;
     const icon = isCurrent ? '✅' : isLower ? '✓' : '⬆️';
 
-    msg += `${icon} *Level ${tier.level} — ${tier.name}*\\n`;
-    msg += `   💵 Price: ${tier.price} TK\\n`;
-    msg += `   📊 Daily Limit: ${tier.dailyAdLimit} ads\\n`;
-    msg += `   🚀 Reward Boost: +${tier.rewardBoost}%\\n\\n`;
+    msg += `${icon} *Level ${tier.level} — ${tier.name}*\n`;
+    msg += `   💵 Price: ${tier.price} TK\n`;
+    msg += `   📊 Daily Limit: ${tier.dailyAdLimit} ads\n`;
+    msg += `   🚀 Reward Boost: +${tier.rewardBoost}%\n\n`;
 
     if (!isCurrent && !isLower) {
       buttons.push([[`👑 Upgrade to ${tier.name} (${tier.price} TK)`, `vip:upgrade:${tier.level}`]]);
@@ -76,12 +76,12 @@ export const vipUpgradeCallback: BotMiddleware = async (ctx) => {
 
     await ctx.answerCbQuery();
     await ctx.editMessageText(
-      `💳 *Confirm VIP Upgrade*\\n\\n` +
-      `Upgrading from Level ${payment.fromLevel} → *Level ${tier.level} ${tier.name}*\\n` +
-      `💵 Amount: *${tier.price} TK*\\n\\n` +
-      `🪙 Daily Ad Limit: ${tier.dailyAdLimit}\\n` +
-      `🚀 Reward Boost: +${tier.rewardBoost}%\\n\\n` +
-      `*In production, you would be redirected to bKash/Nagad/Rocket.*\\n` +
+      `💳 *Confirm VIP Upgrade*\n\n` +
+      `Upgrading from Level ${payment.fromLevel} → *Level ${tier.level} ${tier.name}*\n` +
+      `💵 Amount: *${tier.price} TK*\n\n` +
+      `🪙 Daily Ad Limit: ${tier.dailyAdLimit}\n` +
+      `🚀 Reward Boost: +${tier.rewardBoost}%\n\n` +
+      `*In production, you would be redirected to bKash/Nagad/Rocket.*\n` +
       `Click "Confirm Payment" to simulate payment.`,
       { parse_mode: 'Markdown', reply_markup: keyboard },
     );
@@ -122,10 +122,10 @@ export const vipConfirmCallback: BotMiddleware = async (ctx) => {
 
     await ctx.answerCbQuery('🎉 VIP Upgrade successful!');
     await ctx.editMessageText(
-      `🎉 *VIP Upgrade Successful!*\\n\\n` +
-      `You are now *${tier.name} (Level ${tier.level})*!\\n\\n` +
-      `📊 New Daily Ad Limit: *${tier.dailyAdLimit}*\\n` +
-      `🚀 New Reward Boost: *+${tier.rewardBoost}%*\\n\\n` +
+      `🎉 *VIP Upgrade Successful!*\n\n` +
+      `You are now *${tier.name} (Level ${tier.level})*!\n\n` +
+      `📊 New Daily Ad Limit: *${tier.dailyAdLimit}*\n` +
+      `🚀 New Reward Boost: *+${tier.rewardBoost}%*\n\n` +
       `Start earning more now!`,
       { parse_mode: 'Markdown', reply_markup: keyboard },
     );

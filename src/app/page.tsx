@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   LayoutDashboard,
   Users,
@@ -13,6 +14,11 @@ import {
   Crown,
   Settings,
   Bot,
+  ArrowLeftRight,
+  Fingerprint,
+  RefreshCw,
+  CircleDot,
+  CircleOff,
 } from 'lucide-react'
 import DashboardStats from '@/components/admin/DashboardStats'
 import UsersTable from '@/components/admin/UsersTable'
@@ -21,6 +27,8 @@ import WithdrawalsPanel from '@/components/admin/WithdrawalsPanel'
 import FraudAlerts from '@/components/admin/FraudAlerts'
 import VipTiersPanel from '@/components/admin/VipTiersPanel'
 import SettingsPanel from '@/components/admin/SettingsPanel'
+import TransactionsPanel from '@/components/admin/TransactionsPanel'
+import DevicesPanel from '@/components/admin/DevicesPanel'
 
 interface TabBadgeCount {
   fraudAlerts: number
@@ -29,9 +37,10 @@ interface TabBadgeCount {
 
 export default function Home() {
   const [badgeCounts, setBadgeCounts] = useState<TabBadgeCount>({ fraudAlerts: 0, pendingWithdrawals: 0 })
+  const [botOnline, setBotOnline] = useState<boolean | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    // Fetch counts for badges
+  const fetchBadgeCounts = useCallback(() => {
     Promise.all([
       fetch('/api/admin/fraud?resolved=false').then((r) => r.json()),
       fetch('/api/admin').then((r) => r.json()),
@@ -40,15 +49,45 @@ export default function Home() {
         fraudAlerts: fraudData.alerts?.length || 0,
         pendingWithdrawals: statsData.pendingWithdrawals || 0,
       })
-    })
+    }).catch(() => {})
   }, [])
+
+  const checkBotStatus = useCallback(() => {
+    // Check if the Telegram bot mini-service is running on port 3001
+    fetch('/api/admin/bot-status')
+      .then((r) => r.json())
+      .then((data) => {
+        setBotOnline(data.online ?? false)
+      })
+      .catch(() => setBotOnline(false))
+  }, [])
+
+  useEffect(() => {
+    fetchBadgeCounts()
+    checkBotStatus()
+    // Refresh counts every 30 seconds
+    const interval = setInterval(() => {
+      fetchBadgeCounts()
+      checkBotStatus()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [fetchBadgeCounts, checkBotStatus])
+
+  const handleRefresh = () => {
+    setRefreshing(true)
+    fetchBadgeCounts()
+    checkBotStatus()
+    setTimeout(() => setRefreshing(false), 800)
+  }
 
   const tabs = [
     { value: 'overview', label: 'Overview', icon: LayoutDashboard },
     { value: 'users', label: 'Users', icon: Users },
     { value: 'ads', label: 'Ads', icon: Megaphone },
+    { value: 'transactions', label: 'Transactions', icon: ArrowLeftRight },
     { value: 'withdrawals', label: 'Withdrawals', icon: Banknote, badge: badgeCounts.pendingWithdrawals },
     { value: 'fraud', label: 'Fraud', icon: ShieldAlert, badge: badgeCounts.fraudAlerts },
+    { value: 'devices', label: 'Devices', icon: Fingerprint },
     { value: 'vip', label: 'VIP Tiers', icon: Crown },
     { value: 'settings', label: 'Settings', icon: Settings },
   ]
@@ -68,7 +107,38 @@ export default function Home() {
                 <p className="text-xs text-muted-foreground -mt-0.5 hidden sm:block">Telegram Ad Earning Platform</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* Bot Status Indicator */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs">
+                {botOnline === null ? (
+                  <>
+                    <div className="h-2 w-2 rounded-full bg-gray-300 animate-pulse" />
+                    <span className="text-muted-foreground hidden sm:inline">Checking...</span>
+                  </>
+                ) : botOnline ? (
+                  <>
+                    <CircleDot className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="text-emerald-600 font-medium hidden sm:inline">Bot Online</span>
+                  </>
+                ) : (
+                  <>
+                    <CircleOff className="h-3.5 w-3.5 text-red-400" />
+                    <span className="text-red-500 font-medium hidden sm:inline">Bot Offline</span>
+                  </>
+                )}
+              </div>
+
+              {/* Refresh Button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleRefresh}
+              >
+                <RefreshCw className={`h-4 w-4 text-muted-foreground ${refreshing ? 'animate-spin' : ''}`} />
+              </Button>
+
+              {/* Admin Avatar */}
               <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
                 <span className="text-sm font-semibold text-emerald-700">A</span>
               </div>
@@ -122,12 +192,20 @@ export default function Home() {
               <AdsManager />
             </TabsContent>
 
+            <TabsContent value="transactions">
+              <TransactionsPanel />
+            </TabsContent>
+
             <TabsContent value="withdrawals">
               <WithdrawalsPanel />
             </TabsContent>
 
             <TabsContent value="fraud">
               <FraudAlerts />
+            </TabsContent>
+
+            <TabsContent value="devices">
+              <DevicesPanel />
             </TabsContent>
 
             <TabsContent value="vip">
@@ -145,11 +223,10 @@ export default function Home() {
       <footer className="mt-auto border-t bg-white">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-muted-foreground">
-            © 2024 AdEarn Bot Admin Panel
+            © 2025 AdEarn Bot Admin Panel — Telegram Ad-Based Earning Platform
           </p>
         </div>
       </footer>
     </div>
   )
 }
-

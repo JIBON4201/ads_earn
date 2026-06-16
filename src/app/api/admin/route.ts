@@ -11,6 +11,11 @@ export async function GET() {
       recentTransactions,
       recentWithdrawals,
       adWatchStats,
+      activeAdsCount,
+      totalAdClicks,
+      vipDistribution,
+      totalDevices,
+      suspiciousDevices,
     ] = await Promise.all([
       db.botUser.count(),
       db.botUser.aggregate({ _sum: { balance: true, totalEarned: true } }),
@@ -26,7 +31,6 @@ export async function GET() {
         take: 5,
         include: { user: { select: { firstName: true, username: true, telegramId: true } } },
       }),
-      // Get ad watch data for the last 7 days
       db.userAdWatch.findMany({
         where: {
           startedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
@@ -36,6 +40,14 @@ export async function GET() {
           pointsEarned: true,
         },
       }),
+      db.ad.count({ where: { isActive: true } }),
+      db.ad.aggregate({ _sum: { clickCount: true, totalSpent: true } }),
+      db.botUser.groupBy({
+        by: ['vipLevel'],
+        _count: { vipLevel: true },
+      }),
+      db.device.count(),
+      db.device.count({ where: { accountCount: { gte: 2 } } }),
     ])
 
     // Build earnings chart data for last 7 days
@@ -76,6 +88,14 @@ export async function GET() {
       })),
     ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 8)
 
+    // Format VIP distribution
+    const vipMap: Record<number, string> = { 0: 'Free', 1: 'Bronze', 2: 'Silver', 3: 'Gold', 4: 'Platinum' }
+    const vipData = vipDistribution.map((v) => ({
+      level: v.vipLevel,
+      name: vipMap[v.vipLevel] || `VIP ${v.vipLevel}`,
+      count: v._count.vipLevel,
+    })).sort((a, b) => a.level - b.level)
+
     return NextResponse.json({
       users: userCount,
       totalBalance: balanceResult._sum.balance || 0,
@@ -84,6 +104,12 @@ export async function GET() {
       fraudAlerts: fraudAlertsCount,
       recentActivity,
       earningsChart: chartData,
+      activeAds: activeAdsCount,
+      totalAdClicks: totalAdClicks._sum.clickCount || 0,
+      totalAdSpend: totalAdClicks._sum.totalSpent || 0,
+      vipDistribution: vipData,
+      totalDevices,
+      suspiciousDevices,
     })
   } catch (error) {
     console.error('Admin stats error:', error)

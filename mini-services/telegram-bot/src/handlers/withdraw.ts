@@ -20,9 +20,9 @@ export const withdrawHandler: BotMiddleware = async (ctx) => {
   withdrawState.set(user.telegramId, { step: 'awaiting_amount', data: {} });
 
   const text =
-    `💸 *Withdraw Funds*\\n\\n` +
-    `🪙 Your Balance: *${user.balance.toFixed(2)} TK*\\n` +
-    `📊 Minimum Withdrawal: *${minWithdrawal} TK*\\n\\n` +
+    `💸 *Withdraw Funds*\n\n` +
+    `🪙 Your Balance: *${user.balance.toFixed(2)} TK*\n` +
+    `📊 Minimum Withdrawal: *${minWithdrawal} TK*\n\n` +
     `Please enter the amount you want to withdraw (in TK):`;
 
   if (ctx.callbackQuery) {
@@ -68,7 +68,7 @@ export const withdrawTextHandler: BotMiddleware = async (ctx) => {
       state.step = 'awaiting_method';
 
       await ctx.reply(
-        `💵 Amount: *${amount.toFixed(2)} TK*\\n\\n` +
+        `💵 Amount: *${amount.toFixed(2)} TK*\n\n` +
         `Select your payment method:`,
         {
           parse_mode: 'Markdown',
@@ -97,10 +97,10 @@ export const withdrawTextHandler: BotMiddleware = async (ctx) => {
       const method = state.data.method?.toUpperCase() || 'Unknown';
 
       await ctx.reply(
-        `📝 *Confirm Withdrawal*\\n\\n` +
-        `💵 Amount: *${amount.toFixed(2)} TK*\\n` +
-        `📱 Method: *${method}*\\n` +
-        `🔢 Number: *${paymentNumber}*\\n\\n` +
+        `📝 *Confirm Withdrawal*\n\n` +
+        `💵 Amount: *${amount.toFixed(2)} TK*\n` +
+        `📱 Method: *${method}*\n` +
+        `🔢 Number: *${paymentNumber}*\n\n` +
         `Is this correct?`,
         {
           parse_mode: 'Markdown',
@@ -136,7 +136,7 @@ export const withdrawMethodCallback: BotMiddleware = async (ctx) => {
 
   await ctx.answerCbQuery();
   await ctx.editMessageText(
-    `📱 Payment Method: *${method.toUpperCase()}*\\n\\n` +
+    `📱 Payment Method: *${method.toUpperCase()}*\n\n` +
     `Please enter your ${method.toUpperCase()} number (e.g., 01712345678):`,
     { parse_mode: 'Markdown', reply_markup: CANCEL_KEYBOARD },
   );
@@ -175,12 +175,12 @@ export const withdrawConfirmCallback: BotMiddleware = async (ctx) => {
 
     await ctx.answerCbQuery('✅ Withdrawal request submitted!');
     await ctx.editMessageText(
-      `✅ *Withdrawal Request Submitted!*\\n\\n` +
-      `💵 Amount: *${amount.toFixed(2)} TK*\\n` +
-      `📱 Method: *${method.toUpperCase()}*\\n` +
-      `🔢 Number: *${paymentNumber}*\\n` +
-      `🪙 Remaining Balance: *${newBalance.toFixed(2)} TK*\\n\\n` +
-      `⏳ Your withdrawal is being processed. You will be notified once it's approved.\\n\\n` +
+      `✅ *Withdrawal Request Submitted!*\n\n` +
+      `💵 Amount: *${amount.toFixed(2)} TK*\n` +
+      `📱 Method: *${method.toUpperCase()}*\n` +
+      `🔢 Number: *${paymentNumber}*\n` +
+      `🪙 Remaining Balance: *${newBalance.toFixed(2)} TK*\n\n` +
+      `⏳ Your withdrawal is being processed. You will be notified once it's approved.\n\n` +
       `*Typically processed within 24-48 hours.*`,
       {
         parse_mode: 'Markdown',

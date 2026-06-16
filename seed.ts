@@ -7,11 +7,11 @@ async function seed() {
 
   // Seed VIP Tiers
   const vipTiers = [
-    { level: 0, name: 'Free', price: 0, dailyAdLimit: 5, rewardBoost: 0, description: 'Basic free tier', isActive: true },
-    { level: 1, name: 'VIP 1', price: 10, dailyAdLimit: 10, rewardBoost: 15, description: '+15% reward boost, 10 ads/day', isActive: true },
-    { level: 2, name: 'VIP 2', price: 100, dailyAdLimit: 15, rewardBoost: 30, description: '+30% reward boost, 15 ads/day', isActive: true },
-    { level: 3, name: 'VIP 3', price: 500, dailyAdLimit: 20, rewardBoost: 50, description: '+50% reward boost, 20 ads/day', isActive: true },
-    { level: 4, name: 'VIP 4', price: 1000, dailyAdLimit: 25, rewardBoost: 70, description: '+70% reward boost, 25+ ads/day', isActive: true },
+    { level: 0, name: 'Free', price: 0, dailyAdLimit: 5, rewardBoost: 0, description: 'Basic free tier — 5 ads/day, no reward boost', isActive: true },
+    { level: 1, name: 'Bronze', price: 10, dailyAdLimit: 10, rewardBoost: 15, description: '+15% reward boost, 10 ads/day — 10 TK', isActive: true },
+    { level: 2, name: 'Silver', price: 100, dailyAdLimit: 15, rewardBoost: 30, description: '+30% reward boost, 15 ads/day — 100 TK', isActive: true },
+    { level: 3, name: 'Gold', price: 500, dailyAdLimit: 20, rewardBoost: 50, description: '+50% reward boost, 20 ads/day — 500 TK', isActive: true },
+    { level: 4, name: 'Platinum', price: 1000, dailyAdLimit: 25, rewardBoost: 70, description: '+70% reward boost, 25+ ads/day — 1000 TK', isActive: true },
   ]
 
   for (const tier of vipTiers) {
@@ -49,7 +49,10 @@ async function seed() {
   }
   console.log('✅ System settings seeded')
 
-  // Seed Sample Ads
+  // Seed Sample Ads (clear existing to avoid duplicates)
+  await prisma.userAdWatch.deleteMany()
+  await prisma.ad.deleteMany()
+  
   const ads = [
     {
       title: 'Welcome Bonus Ad',
