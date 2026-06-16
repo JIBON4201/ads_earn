@@ -58,3 +58,122 @@ Stage Summary:
 - Database populated with realistic demo data for all features
 - All 9 admin panel tabs verified working with Agent Browser
 - Production-ready with zero lint errors
+
+---
+Task ID: 3
+Agent: Main
+Task: Build user-facing components and API routes for Ad-Based Earning Platform
+
+Work Log:
+- Created 5 user API routes with full validation, business logic, and database transactions
+- Created 6 user-facing React components with emerald color scheme, framer-motion animations, and responsive design
+- All code passes ESLint with zero errors
+- Dev server compiles successfully with all new routes
+
+API Routes Created:
+1. `/api/user/route.ts` — GET user profile + stats
+   - Fetches user by telegramId, returns user data, VIP tier info, today's ad watch count, today's earnings, referral count, pending withdrawals
+   - Returns 403 if user is blocked
+
+2. `/api/user/ads/route.ts` — GET available ads + POST watch completion
+   - GET: Returns all active ads with per-ad today watch counts, remaining watches, VIP-boosted rewards, daily limit tracking
+   - POST: Validates user/ad/blocked status, checks per-ad daily limit, VIP daily limit, ad budget, creates UserAdWatch record (completed immediately for web demo), calculates reward with VIP boost, creates Transaction record, updates user balance/totalEarned and ad spend/clickCount
+
+3. `/api/user/wallet/route.ts` — GET transactions + POST withdrawal
+   - GET: Returns paginated transaction history with balance, totalEarned, pending withdrawals; supports type filter
+   - POST: Validates amount (min from settings), payment method (bkash/nagad/rocket), phone number (Bangladeshi format), max 3 pending withdrawals, deducts balance immediately, creates Withdrawal (pending) + Transaction records
+
+4. `/api/user/vip/route.ts` — GET VIP tiers + POST upgrade
+   - GET: Returns all active VIP tiers and user's current level/balance
+   - POST: Validates target > current level, checks affordability, deducts price from balance, updates vipLevel, creates VipPayment (confirmed) + Transaction records
+
+5. `/api/user/referral/route.ts` — GET referral info + POST apply code
+   - GET: Returns referral code, count, referred users list, total bonus earned, bonus per referral
+   - POST: Validates code exists, not self-referral, not already referred, gives bonus (5 TK) to both referrer and referee, updates referredBy/referralCount, creates Transaction records for both users
+
+User Components Created:
+1. `src/components/user/UserDashboard.tsx` — Main user dashboard
+   - Emerald gradient hero section with greeting, VIP badge
+   - Three stat cards: Available Balance (big number), Today's Earnings, Total Earned
+   - Quick action buttons: Watch Ads, Withdraw (with pending count badge), Upgrade VIP, Referrals
+   - Stats grid: VIP Level, Referrals, Daily Ad Limit, Reward Boost
+   - Area chart (recharts) showing 7-day earnings overview
+   - Framer-motion staggered fade-up animations
+   - Loading skeletons for all sections
+   - Props: `{ telegramId: number; onNavigate?: (tab: string) => void }`
+
+2. `src/components/user/WatchAds.tsx` — Ad watching interface
+   - Daily progress bar with watch count / limit and VIP boost indicator
+   - Ad cards list with title, description, type badge, duration, reward (with boost strike-through), remaining watches
+   - Full-screen countdown modal with gradient header, circular timer, progress bar
+   - "Claim Reward" button after countdown, success toast with new balance
+   - Cancel button, disabled states for exhausted ads
+   - Daily limit reached warning card
+   - Props: `{ telegramId: number; userId: string }`
+
+3. `src/components/user/Wallet.tsx` — Wallet & transaction history
+   - Balance card with emerald gradient, total earned, withdraw button
+   - Withdraw dialog: payment method select (bkash/nagad/rocket), amount input with min hint, phone number input
+   - Pending withdrawals section with amber styling and processing badge
+   - Transaction history with colored type icons, amounts (green/red), balance after, timestamps
+   - ScrollArea with max-h-96, pagination controls
+   - Props: `{ telegramId: number; userId: string }`
+
+4. `src/components/user/VipUpgrade.tsx` — VIP tier display & upgrade
+   - Current level header with gradient and balance display
+   - 5 tier cards: Free (gray), Bronze (emerald), Silver (sky), Gold (amber), Platinum (amber gradient)
+   - Each card: icon, name, stats (ads/day, boost %, price), feature list with checkmarks
+   - "CURRENT" badge on active tier, "Active"/"Passed" disabled buttons for current/lower
+   - Upgrade button with price, disabled if can't afford, loading spinner during upgrade
+   - Props: `{ telegramId: number; userId: string }`
+
+5. `src/components/user/ReferralSystem.tsx` — Referral page
+   - Referral code card with emerald gradient, large monospace code, copy button
+   - Stats row: Referrals count, Bonus Earned, Per Referral amount
+   - Apply referral code input (uppercase, Enter key support) with loading state
+   - "Already referred" info card for returning users
+   - Referred users list with avatar initial, name, username, join date, bonus badge
+   - Props: `{ telegramId: number; userId: string }`
+
+6. `src/components/user/UserProfile.tsx` — User profile
+   - Profile header with emerald gradient banner, avatar initial, name, username, VIP badge
+   - Info grid: Telegram ID, Join date, VIP Level, Balance, Total Earned, Referrals
+   - Activity overview: Today's Earnings, Today's Ads, Pending Payouts
+   - VIP Benefits card showing current tier's ad limit, reward boost, description
+   - Clean card layout with consistent spacing
+   - Props: `{ telegramId: number }`
+
+Stage Summary:
+- 5 API routes created under /api/user/ with full business logic (ads, wallet, vip, referral, profile)
+- 6 React components created under src/components/user/ with emerald design system
+- All components use shadcn/ui, lucide-react, framer-motion, sonner toasts, recharts
+- Mobile-first responsive design, loading skeletons, error handling
+- ESLint: clean (0 errors), dev server compiles successfully
+- Ready for integration into page.tsx (NOT modified per instructions)
+
+---
+Task ID: 4
+Agent: Main
+Task: Integrate user app into page.tsx with Admin/User mode toggle
+
+Work Log:
+- Rewrote page.tsx with dual-mode architecture: User App (default) + Admin Panel
+- Added smooth mode toggle button in header (emerald for User, dark for Admin)
+- Added user selector dropdown with 5 demo users (Rahim/Silver, Fatima/Platinum, Susmita/Gold, Karim/Bronze, Habib/Free)
+- User mode has 6 tabs: Home, Watch Ads, Wallet, VIP, Referrals, Profile
+- Admin mode preserves all 9 original tabs with badge counts
+- Fixed Wallet naming conflict (lucide Wallet icon vs Wallet component) — renamed to UserWalletComponent internally
+- AnimatePresence for smooth transitions between modes and tabs
+- User selector animates in/out when switching modes
+- Footer updates text based on current mode
+- Agent Browser verified: User App dashboard, Watch Ads (VIP boost display), Admin mode switch all working
+- ESLint: clean (0 errors)
+- All API routes returning 200
+
+Stage Summary:
+- Full dual-mode app: Admin Panel (9 tabs) + User App (6 tabs) on single page
+- Mode toggle in header with user selector dropdown
+- User App features: Dashboard, Watch Ads with timer, Wallet with withdrawal, VIP upgrade, Referrals, Profile
+- 5 demo users selectable to test different VIP levels
+- Screenshot saved: /home/z/my-project/screenshot-user-app.png
+- Zero lint errors, all routes verified
