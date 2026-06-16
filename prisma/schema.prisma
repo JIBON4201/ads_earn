@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Telegram Bot User
+model BotUser {
+  id              String   @id @default(cuid())
+  telegramId      Int      @unique
+  username        String?
+  firstName       String
+  lastName        String?
+  balance         Float    @default(0)
+  totalEarned     Float    @default(0)
+  vipLevel        Int      @default(0)
+  referralCode    String   @unique
+  referredBy      String?
+  referredByUser  BotUser? @relation("ReferralTree", fields: [referredBy], references: [referralCode])
+  referrals       BotUser[] @relation("ReferralTree")
+  referralCount   Int      @default(0)
+  deviceHash      String?
+  device          Device?  @relation(fields: [deviceHash], references: [deviceHash])
+  ipAddress       String?
+  userAgent       String?
+  isBlocked       Boolean  @default(false)
+  blockReason     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  adWatches      UserAdWatch[]
+  withdrawals    Withdrawal[]
+  transactions   Transaction[]
+  vipPayments    VipPayment[]
+  rateLimits     RateLimit[]
+}
+
+// Device fingerprint tracking
+model Device {
+  id           String   @id @default(cuid())
+  deviceHash   String   @unique
+  accountCount Int      @default(1)
+  userTelegramIds String  // JSON array of telegram IDs
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users BotUser[]
+}
+
+// Ad/Offer definitions
+model Ad {
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  url            String
+  rewardPoints   Float
+  requiredSeconds Int     @default(30)
+  dailyLimit     Int      @default(5)
+  totalBudget    Float?
+  totalSpent     Float    @default(0)
+  clickCount     Int      @default(0)
+  isActive       Boolean  @default(true)
+  adType         String   @default("cpm") // cpm, cpa, sponsored
+  priority       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userWatches UserAdWatch[]
+}
+
+// Track user ad watch sessions
+model UserAdWatch {
+  id            String   @id @default(cuid())
+  userId        String
+  user          BotUser  @relation(fields: [userId], references: [id])
+  adId          String
+  ad            Ad       @relation(fields: [adId], references: [id])
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  rewardGranted Boolean  @default(false)
+  pointsEarned  Float    @default(0)
+  ipAddress     String?
+  callbackData  String?  // JSON for external callback verification
+}
+
+// Withdrawal requests
+model Withdrawal {
+  id              String   @id @default(cuid())
+  userId          String
+  user            BotUser  @relation(fields: [userId], references: [id])
+  amount          Float
+  paymentMethod   String   // bkash, nagad, rocket, etc
+  paymentNumber   String
+  status          String   @default("pending") // pending, approved, rejected, paid
+  adminNote       String?
+  requestedAt     DateTime @default(now())
+  processedAt     DateTime?
+  processedBy     String?
+}
+
+// VIP tier definitions
+model VipTier {
+  id          String   @id @default(cuid())
+  level       Int      @unique
+  name        String
+  price       Float    // in TK
+  dailyAdLimit Int
+  rewardBoost Float    // percentage, e.g. 20 means 20%
+  description String?
+  isActive    Boolean  @default(true)
+}
+
+// VIP payment records
+model VipPayment {
+  id            String   @id @default(cuid())
+  userId        String
+  user          BotUser  @relation(fields: [userId], references: [id])
+  fromLevel     Int
+  toLevel       Int
+  amount        Float
+  paymentMethod String?
+  paymentRef    String?
+  status        String   @default("pending") // pending, confirmed, failed
+  createdAt     DateTime @default(now())
+}
+
+// Transaction ledger for audit
+model Transaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        BotUser  @relation(fields: [userId], references: [id])
+  type        String   // ad_reward, referral_bonus, withdrawal, vip_purchase, admin_adjust
+  amount      Float
+  balanceAfter Float
+  description String
+  metadata    String?  // JSON for extra data
+  createdAt   DateTime @default(now())
+}
+
+// Rate limiting tracker
+model RateLimit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      BotUser  @relation(fields: [userId], references: [id])
+  action    String   // watch_ad, withdraw, etc
+  count     Int      @default(1)
+  windowStart DateTime @default(now())
+}
+
+// System settings (key-value store)
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+// Fraud alert log
+model FraudAlert {
+  id        String   @id @default(cuid())
+  userId    String?
+  telegramId Int?
+  type      String   // multi_account, ip_abuse, referral_abuse, rate_abuse, behavior_anomaly
+  severity  String   @default("medium") // low, medium, high, critical
+  details   String   // JSON with full context
+  isResolved Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+
+// Activity log for all bot interactions
+model ActivityLog {
+  id        String   @id @default(cuid())
+  telegramId Int
+  action    String
+  details   String?  // JSON
+  ipAddress String?
+  createdAt DateTime @default(now())
+}

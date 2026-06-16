@@ -1,0 +1,20 @@
+{
+  "name": "adearn-telegram-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "@prisma/client": "^6.4.1",
+    "dotenv": "^16.4.7",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.4.1",
+    "@types/bun": "^1.2.8",
+    "@types/uuid": "^10.0.0"
+  }
+}
