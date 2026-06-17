@@ -296,3 +296,22 @@ Stage Summary:
 - ESLint: clean (0 errors)
 - User deposit API verified: returns 3 deposits, 3 methods, auto-verify config
 - Automator verified: health OK, 8 logs, running on port 3010
+
+---
+Task ID: fix-sandbox-inactive
+Agent: Main
+Task: Fix "sandbox is inactive" error in live preview panel
+
+Work Log:
+- Diagnosed root cause: two issues — (1) CORS blocking on `/_next/*` resources from preview domain, (2) dev server process dying in background
+- Analyzed Next.js 16 source code (`block-cross-site.js` and `csrf-protection.js`) to understand `allowedDevOrigins` matching logic
+- Found that `allowedDevOrigins` compares **hostnames** (not full URLs) using wildcard domain matching (`*.space-z.ai` matches subdomains)
+- Fixed `next.config.ts`: changed `allowedDevOrigins` from `["*"]` to `["*.space-z.ai", "space-z.ai"]`
+- Fixed `package.json` dev script: removed `| tee dev.log` pipe that breaks when process is backgrounded
+- Used `(setsid npx next dev -p 3000 </dev/null >> dev.log 2>&1 &)` double-fork with setsid to truly detach server process
+- Verified with Agent Browser: page loads, all admin tabs render, no CORS errors in log
+
+Stage Summary:
+- CORS issue resolved: cross-origin requests from `*.space-z.ai` now return 404 (file not found) instead of 403 (blocked)
+- Dev server stays alive using setsid double-fork approach
+- Preview panel should now work correctly
