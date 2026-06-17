@@ -21,6 +21,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // Get VIP tier info for withdrawal limits
+    const vipTier = await db.vipTier.findUnique({
+      where: { level: user.vipLevel },
+    })
+
+    // Count total lifetime withdrawals (all statuses)
+    const totalWithdrawals = await db.withdrawal.count({
+      where: { userId: user.id },
+    })
+
+    // Count pending withdrawals
+    const pendingWithdrawals = await db.withdrawal.findMany({
+      where: { userId: user.id, status: 'pending' },
+      orderBy: { requestedAt: 'desc' },
+    })
+
     // Build where clause
     const where: Record<string, unknown> = { userId: user.id }
     if (type) {
@@ -37,17 +53,20 @@ export async function GET(request: NextRequest) {
       db.transaction.count({ where }),
     ])
 
-    // Get pending withdrawals
-    const pendingWithdrawals = await db.withdrawal.findMany({
-      where: { userId: user.id, status: 'pending' },
-      orderBy: { requestedAt: 'desc' },
-    })
-
     return NextResponse.json({
       balance: user.balance,
       totalEarned: user.totalEarned,
       transactions,
       pendingWithdrawals,
+      withdrawalLimits: {
+        minAmount: vipTier?.minWithdrawal ?? 50,
+        maxWithdrawals: vipTier?.maxWithdrawals ?? 999,
+        totalWithdrawals,
+        remainingWithdrawals: Math.max(0, (vipTier?.maxWithdrawals ?? 999) - totalWithdrawals),
+        isFreeUser: user.vipLevel === 0,
+      },
+      vipLevel: user.vipLevel,
+      vipName: vipTier?.name ?? 'Free',
       pagination: {
         page,
         limit,
@@ -102,15 +121,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Account is blocked' }, { status: 403 })
     }
 
-    // Get minimum withdrawal from settings
-    const minWithdrawalSetting = await db.setting.findUnique({
-      where: { key: 'min_withdrawal' },
+    // Get VIP tier for withdrawal limits
+    const vipTier = await db.vipTier.findUnique({
+      where: { level: user.vipLevel },
     })
-    const minWithdrawal = minWithdrawalSetting ? parseFloat(minWithdrawalSetting.value) : 50
 
+    const minWithdrawal = vipTier?.minWithdrawal ?? 50
+    const maxWithdrawals = vipTier?.maxWithdrawals ?? 999
+
+    // Check minimum withdrawal amount
     if (parsedAmount < minWithdrawal) {
       return NextResponse.json(
-        { error: `Minimum withdrawal is ${minWithdrawal} TK` },
+        { error: `Minimum withdrawal for ${vipTier?.name ?? 'Free'} users is ${minWithdrawal} TK` },
+        { status: 400 }
+      )
+    }
+
+    // Check maximum lifetime withdrawals (Free users = 1)
+    const totalWithdrawals = await db.withdrawal.count({
+      where: { userId: user.id },
+    })
+
+    if (totalWithdrawals >= maxWithdrawals) {
+      return NextResponse.json(
+        { error: user.vipLevel === 0
+          ? `Free users can only withdraw once. Upgrade to Bronze or higher for unlimited withdrawals.`
+          : `You have reached your lifetime withdrawal limit (${maxWithdrawals}).`
+        },
         { status: 400 }
       )
     }

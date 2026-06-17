@@ -35,7 +35,7 @@ interface UserAppProps {
 }
 
 const DEMO_USERS: { telegramId: number; label: string; vip: string }[] = [
-  { telegramId: 100001, label: 'Rahim (Silver VIP)', vip: 'Silver' },
+  { telegramId: 100001, label: 'Rahim (Gold VIP)', vip: 'Gold' },
   { telegramId: 100003, label: 'Fatima (Platinum VIP)', vip: 'Platinum' },
   { telegramId: 100005, label: 'Susmita (Gold VIP)', vip: 'Gold' },
   { telegramId: 100002, label: 'Karim (Bronze VIP)', vip: 'Bronze' },

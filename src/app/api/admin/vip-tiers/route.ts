@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const results = await Promise.all(
-      tiers.map((tier: { id: string; name: string; price: number; dailyAdLimit: number; rewardBoost: number; description?: string; isActive: boolean }) =>
+      tiers.map((tier: { id: string; name: string; price: number; dailyAdLimit: number; rewardBoost: number; description?: string; minWithdrawal?: number; maxWithdrawals?: number; isActive: boolean }) =>
         db.vipTier.update({
           where: { id: tier.id },
           data: {
@@ -32,6 +32,8 @@ export async function PATCH(request: NextRequest) {
             dailyAdLimit: tier.dailyAdLimit,
             rewardBoost: tier.rewardBoost,
             description: tier.description || null,
+            minWithdrawal: tier.minWithdrawal ?? 50,
+            maxWithdrawals: tier.maxWithdrawals ?? 999,
             isActive: tier.isActive,
           },
         })

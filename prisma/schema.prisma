@@ -111,6 +111,8 @@ model VipTier {
   dailyAdLimit Int
   rewardBoost Float    // percentage, e.g. 20 means 20%
   description String?
+  minWithdrawal Float @default(50) // minimum withdrawal amount in TK
+  maxWithdrawals Int @default(999) // max lifetime withdrawals (Free=1)
   isActive    Boolean  @default(true)
 }
 

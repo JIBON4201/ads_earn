@@ -379,3 +379,26 @@ Stage Summary:
 - Regular users see ONLY the User App at `/` — no trace of admin
 - Admin accesses panel via secret URL: `/?admin=true`
 - No landing page, no admin toggle, no admin card visible anywhere to users
+
+---
+Task ID: withdrawal-limits-per-vip
+Agent: Main
+Task: Set minimum withdrawal amounts per VIP tier (20,50,100,200,250 TK) and restrict Free users to 1 withdrawal
+
+Work Log:
+- Added `minWithdrawal` (Float) and `maxWithdrawals` (Int) fields to VipTier schema
+- Pushed schema and regenerated Prisma client
+- Updated VIP tiers in DB: Free=20 TK/1 max, Bronze=50/999, Silver=100/999, Gold=200/999, Platinum=250/999
+- Rewrote wallet GET API to return withdrawalLimits object (minAmount, maxWithdrawals, totalWithdrawals, remainingWithdrawals, isFreeUser) and vipName/vipLevel
+- Rewrote wallet POST API to enforce: (1) min amount per VIP tier, (2) lifetime withdrawal count for Free users (max 1), (3) specific error messages for each case
+- Updated Wallet component: shows limits info box above Withdraw/Deposit buttons (min withdrawal + tier info), disables Withdraw button when no remaining withdrawals, dialog shows amber warning banner with tier-specific min, inline error display on validation failure
+- Updated VipTiersPanel admin component: added Min. Withdraw and Max Withdrawals editable fields to each tier card
+- Updated VIP tiers PATCH API to persist minWithdrawal and maxWithdrawals
+- Updated demo user labels to match actual VIP levels
+
+Stage Summary:
+- Withdrawal limits enforced per VIP: Free 20TK/once, Bronze 50TK, Silver 100TK, Gold 200TK, Platinum 250TK
+- Free user one-time withdrawal: "Free users can only withdraw once. Upgrade to Bronze or higher for unlimited withdrawals."
+- Below-minimum: "Minimum withdrawal for {TierName} users is {X} TK"
+- Admin can edit min/max per tier in VIP Tiers panel
+- All validated via API tests and Agent Browser

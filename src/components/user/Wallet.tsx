@@ -59,11 +59,22 @@ interface PendingWithdrawal {
   requestedAt: string
 }
 
+interface WithdrawalLimits {
+  minAmount: number
+  maxWithdrawals: number
+  totalWithdrawals: number
+  remainingWithdrawals: number
+  isFreeUser: boolean
+}
+
 interface WalletData {
   balance: number
   totalEarned: number
   transactions: Transaction[]
   pendingWithdrawals: PendingWithdrawal[]
+  withdrawalLimits: WithdrawalLimits
+  vipLevel: number
+  vipName: string
   pagination: {
     page: number
     limit: number
@@ -99,6 +110,7 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
   const [page, setPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
+  const [withdrawError, setWithdrawError] = useState('')
   const [form, setForm] = useState({
     amount: '',
     paymentMethod: '',
@@ -129,6 +141,7 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
       return
     }
 
+    setWithdrawError('')
     setWithdrawing(true)
     try {
       const res = await fetch('/api/user/wallet', {
@@ -153,6 +166,7 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
         fetchWallet(1)
         setPage(1)
       } else {
+        setWithdrawError(data.error || 'Withdrawal failed')
         toast.error(data.error || 'Withdrawal failed')
       }
     } catch {
@@ -197,10 +211,33 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
             </p>
           </div>
           <CardContent className="p-4">
+            {/* Withdrawal limit info */}
+            <div className="mb-3 p-2.5 rounded-lg bg-white border text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Min. Withdrawal</span>
+                <span className="font-semibold text-foreground">{walletData.withdrawalLimits.minAmount} TK</span>
+              </div>
+              {walletData.withdrawalLimits.isFreeUser ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Withdrawals Used</span>
+                  <span className={`font-semibold ${walletData.withdrawalLimits.remainingWithdrawals <= 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                    {walletData.withdrawalLimits.totalWithdrawals} / 1 (one-time only)
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Tier</span>
+                  <span className="font-medium text-emerald-600">{walletData.vipName} — Unlimited</span>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2">
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); setWithdrawError('') }}>
                 <DialogTrigger asChild>
-                  <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 text-sm font-semibold">
+                  <Button
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 text-sm font-semibold"
+                    disabled={walletData.withdrawalLimits.remainingWithdrawals <= 0}
+                  >
                     <ArrowUpCircle className="h-4 w-4 mr-1.5" />
                     Withdraw
                   </Button>
@@ -213,6 +250,16 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-2">
+                  {/* Limits info inside dialog */}
+                  <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs">
+                    <WalletIcon className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span className="text-amber-800">
+                      {walletData.withdrawalLimits.isFreeUser
+                        ? `Free tier: minimum ${walletData.withdrawalLimits.minAmount} TK, 1 withdrawal only`
+                        : `${walletData.vipName}: minimum ${walletData.withdrawalLimits.minAmount} TK`}
+                    </span>
+                  </div>
+
                   <div>
                     <Label className="text-sm">Payment Method</Label>
                     <Select
@@ -235,10 +282,10 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
                     <div className="relative mt-1.5">
                       <Input
                         type="number"
-                        placeholder="Minimum 50 TK"
+                        placeholder={`Minimum ${walletData.withdrawalLimits.minAmount} TK`}
                         value={form.amount}
                         onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                        min="50"
+                        min={walletData.withdrawalLimits.minAmount}
                         step="0.1"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
@@ -246,7 +293,7 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Available: {walletData.balance.toFixed(1)} TK
+                      Available: {walletData.balance.toFixed(1)} TK · Min: {walletData.withdrawalLimits.minAmount} TK
                     </p>
                   </div>
 
@@ -263,6 +310,10 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
                       Enter your {form.paymentMethod || 'payment'} number
                     </p>
                   </div>
+
+                  {withdrawError && (
+                    <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{withdrawError}</p>
+                  )}
 
                   <Button
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11"

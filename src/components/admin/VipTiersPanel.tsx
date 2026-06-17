@@ -19,6 +19,8 @@ interface VipTier {
   dailyAdLimit: number
   rewardBoost: number
   description: string | null
+  minWithdrawal: number
+  maxWithdrawals: number
   isActive: boolean
 }
 
@@ -171,6 +173,26 @@ export default function VipTiersPanel() {
                         onChange={(e) => updateField(tier.id, 'rewardBoost', parseFloat(e.target.value) || 0)}
                         className="h-8 text-sm"
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-1.5">
+                        <Label className="text-xs text-muted-foreground">Min. Withdraw (TK)</Label>
+                        <Input
+                          type="number"
+                          value={getField(tier, 'minWithdrawal') as number}
+                          onChange={(e) => updateField(tier.id, 'minWithdrawal', parseFloat(e.target.value) || 0)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label className="text-xs text-muted-foreground">Max Withdrawals</Label>
+                        <Input
+                          type="number"
+                          value={getField(tier, 'maxWithdrawals') as number}
+                          onChange={(e) => updateField(tier.id, 'maxWithdrawals', parseInt(e.target.value) || 0)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t">
