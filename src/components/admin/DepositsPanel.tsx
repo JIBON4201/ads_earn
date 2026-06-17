@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'sonner'
 import {
   Check,
@@ -48,6 +49,11 @@ import {
   TrendingUp,
   Banknote,
   Timer,
+  RotateCcw,
+  Activity,
+  Zap,
+  FileText,
+  RefreshCw,
 } from 'lucide-react'
 
 interface Deposit {
@@ -62,6 +68,7 @@ interface Deposit {
   requestedAt: string
   verifiedAt: string | null
   expiresAt: string | null
+  verificationAttempts?: number
   user: {
     id: string
     firstName: string
@@ -74,656 +81,681 @@ interface Deposit {
   }
 }
 
-interface DepositStats {
-  total: number
-  pending: number
-  autoVerified: number
-  verified: number
-  rejected: number
-  totalAmount: number
+interface AutomationLog {
+  id: string
+  action: string
+  status: string
+  message: string
+  createdAt: string
+  deposit: {
+    amount: number
+    paymentMethod: string
+    transactionId: string
+    status: string
+    user: { firstName: string; telegramId: number } | null
+  }
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-700',
-  auto_verified: 'bg-emerald-100 text-emerald-700',
-  verified: 'bg-emerald-100 text-emerald-700',
-  rejected: 'bg-red-100 text-red-700',
-  expired: 'bg-gray-100 text-gray-500',
+interface AutomationStats {
+  logsToday: number
+  successToday: number
+  errorsToday: number
+  successRate: number
+  recentLogs: AutomationLog[]
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'Pending',
-  auto_verified: 'Auto Verified',
-  verified: 'Verified',
-  rejected: 'Rejected',
-  expired: 'Expired',
+const STATUS_STYLES: Record<string, { badge: string; icon: React.ReactNode }> = {
+  pending: { badge: 'bg-amber-100 text-amber-700', icon: <Clock className="h-3.5 w-3.5" /> },
+  verifying: { badge: 'bg-blue-100 text-blue-700', icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
+  auto_verified: { badge: 'bg-emerald-100 text-emerald-700', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+  verified: { badge: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+  rejected: { badge: 'bg-red-100 text-red-700', icon: <XCircle className="h-3.5 w-3.5" /> },
+  expired: { badge: 'bg-gray-100 text-gray-600', icon: <Timer className="h-3.5 w-3.5" /> },
+  failed: { badge: 'bg-red-100 text-red-700', icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+}
+
+const METHOD_STYLES: Record<string, string> = {
+  bkash: 'bg-pink-100 text-pink-700',
+  nagad: 'bg-orange-100 text-orange-700',
+  rocket: 'bg-purple-100 text-purple-700',
 }
 
 export default function DepositsPanel() {
   const [deposits, setDeposits] = useState<Deposit[]>([])
-  const [stats, setStats] = useState<DepositStats | null>(null)
+  const [stats, setStats] = useState<Record<string, number>>({})
+  const [automation, setAutomation] = useState<AutomationStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('pending')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [methodFilter, setMethodFilter] = useState('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [actionDialog, setActionDialog] = useState<{
-    d: Deposit
-    action: 'verify' | 'reject' | 'expire'
-  } | null>(null)
-  const [settingsDialog, setSettingsDialog] = useState(false)
-  const [note, setNote] = useState('')
+  const [showSettings, setShowSettings] = useState(false)
+  const [showLogs, setShowLogs] = useState(false)
+  const [actionDeposit, setActionDeposit] = useState<Deposit | null>(null)
+  const [actionType, setActionType] = useState<string>('')
+  const [actionNote, setActionNote] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
-  // Settings state
+  // Settings form
   const [settings, setSettings] = useState({
-    bkashNumber: '',
-    nagadNumber: '',
-    rocketNumber: '',
-    minAmount: '10',
-    maxAmount: '50000',
-    autoVerify: false,
-    expireMinutes: '30',
+    deposit_bkash_number: '',
+    deposit_nagad_number: '',
+    deposit_rocket_number: '',
+    deposit_min_amount: '10',
+    deposit_max_amount: '50000',
+    deposit_auto_verify: true,
+    deposit_expire_minutes: '30',
+    deposit_verify_delay_seconds: '8',
+    deposit_max_verify_attempts: '3',
+    deposit_auto_expire: true,
+    deposit_enabled: true,
   })
-  const [savingSettings, setSavingSettings] = useState(false)
+  const [settingsLoading, setSettingsLoading] = useState(false)
 
-  const loadDeposits = () => {
-    setLoading(true)
-    const params = new URLSearchParams()
-    if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
-    if (methodFilter && methodFilter !== 'all') params.set('method', methodFilter)
-    if (searchQuery) params.set('search', searchQuery)
+  const fetchData = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (methodFilter !== 'all') params.set('method', methodFilter)
+      if (search) params.set('search', search)
+      params.set('automation', 'true')
 
-    fetch(`/api/admin/deposits?${params}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setDeposits(data.deposits || [])
-        setStats(data.stats || null)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }
+      const res = await fetch(`/api/admin/deposits?${params}`)
+      const data = await res.json()
+      if (data.error) { toast.error(data.error); return }
+      setDeposits(data.deposits || [])
+      setStats(data.stats || {})
+      setAutomation(data.automation || null)
+    } catch {
+      toast.error('Failed to fetch deposits')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [statusFilter, methodFilter, search])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadDeposits()
-  }, [statusFilter, methodFilter])
+    fetchData()
+    const interval = setInterval(fetchData, 15000)
+    return () => clearInterval(interval)
+  }, [fetchData])
 
-  const handleSearch = () => {
-    loadDeposits()
+  const handleRefresh = () => {
+    setRefreshing(true)
+    fetchData()
   }
 
   const handleAction = async () => {
-    if (!actionDialog) return
+    if (!actionDeposit || !actionType) return
     setActionLoading(true)
     try {
       const res = await fetch('/api/admin/deposits', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          depositId: actionDialog.d.id,
-          action: actionDialog.action,
-          adminNote: note || undefined,
+          depositId: actionDeposit.id,
+          action: actionType,
+          adminNote: actionNote || undefined,
         }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        toast.success(data.message || `Deposit ${actionDialog.action}d`)
-        setActionDialog(null)
-        setNote('')
-        loadDeposits()
-      } else {
-        const err = await res.json()
-        toast.error(err.error || 'Action failed')
-      }
+      const data = await res.json()
+      if (data.error) { toast.error(data.error); return }
+      toast.success(data.message)
+      setActionDeposit(null)
+      setActionType('')
+      setActionNote('')
+      fetchData()
     } catch {
-      toast.error('Network error')
-    }
-    setActionLoading(false)
-  }
-
-  const loadSettings = async () => {
-    try {
-      const allSettings = await fetch('/api/admin/settings').then((r) => r.json())
-      const settingMap: Record<string, string> = {}
-      for (const s of allSettings.settings || []) {
-        settingMap[s.key] = s.value
-      }
-      setSettings({
-        bkashNumber: settingMap.deposit_bkash_number || '',
-        nagadNumber: settingMap.deposit_nagad_number || '',
-        rocketNumber: settingMap.deposit_rocket_number || '',
-        minAmount: settingMap.deposit_min_amount || '10',
-        maxAmount: settingMap.deposit_max_amount || '50000',
-        autoVerify: settingMap.deposit_auto_verify === 'true',
-        expireMinutes: settingMap.deposit_expire_minutes || '30',
-      })
-    } catch {
-      // ignore
+      toast.error('Action failed')
+    } finally {
+      setActionLoading(false)
     }
   }
 
-  const openSettings = () => {
-    loadSettings()
-    setSettingsDialog(true)
-  }
-
-  const saveSettings = async () => {
-    setSavingSettings(true)
+  const handleSettingsSave = async () => {
+    setSettingsLoading(true)
     try {
       const res = await fetch('/api/admin/deposits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deposit_bkash_number: settings.bkashNumber,
-          deposit_nagad_number: settings.nagadNumber,
-          deposit_rocket_number: settings.rocketNumber,
-          deposit_min_amount: settings.minAmount,
-          deposit_max_amount: settings.maxAmount,
-          deposit_auto_verify: settings.autoVerify,
-          deposit_expire_minutes: settings.expireMinutes,
-        }),
+        body: JSON.stringify(settings),
       })
-      if (res.ok) {
-        toast.success('Deposit settings saved')
-        setSettingsDialog(false)
-        loadDeposits()
-      } else {
-        toast.error('Failed to save settings')
-      }
+      const data = await res.json()
+      if (data.error) { toast.error(data.error); return }
+      toast.success('Deposit settings updated')
+      setShowSettings(false)
     } catch {
-      toast.error('Network error')
+      toast.error('Failed to update settings')
+    } finally {
+      setSettingsLoading(false)
     }
-    setSavingSettings(false)
+  }
+
+  const openActionDialog = (deposit: Deposit, action: string) => {
+    setActionDeposit(deposit)
+    setActionType(action)
+    setActionNote('')
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-96 rounded-xl" />
+      </div>
+    )
   }
 
   return (
     <div className="space-y-4">
-      {/* Stats Cards */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <Card className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <ArrowDownCircle className="h-4 w-4" />
-              <span className="text-xs">Total</span>
+      {/* Automation Status Banner */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl p-4 text-white">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
+              <Zap className="h-5 w-5" />
             </div>
-            <p className="text-xl font-bold">{stats.total}</p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-2 text-amber-500 mb-1">
-              <Clock className="h-4 w-4" />
-              <span className="text-xs">Pending</span>
+            <div>
+              <h3 className="font-bold text-sm">Deposit Automation Active</h3>
+              <p className="text-xs text-emerald-100">
+                {automation
+                  ? `${automation.logsToday} actions today — ${automation.successRate}% success rate`
+                  : 'All deposits are verified automatically'}
+              </p>
             </div>
-            <p className="text-xl font-bold text-amber-600">{stats.pending}</p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-2 text-emerald-500 mb-1">
-              <ShieldCheck className="h-4 w-4" />
-              <span className="text-xs">Auto Verified</span>
-            </div>
-            <p className="text-xl font-bold text-emerald-600">{stats.autoVerified}</p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-2 text-emerald-500 mb-1">
-              <CheckCircle2 className="h-4 w-4" />
-              <span className="text-xs">Manual</span>
-            </div>
-            <p className="text-xl font-bold text-emerald-600">{stats.verified}</p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-2 text-red-500 mb-1">
-              <XCircle className="h-4 w-4" />
-              <span className="text-xs">Rejected</span>
-            </div>
-            <p className="text-xl font-bold text-red-600">{stats.rejected}</p>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-2 text-violet-500 mb-1">
-              <TrendingUp className="h-4 w-4" />
-              <span className="text-xs">Total Amount</span>
-            </div>
-            <p className="text-xl font-bold text-violet-600">{stats.totalAmount.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">TK</span></p>
-          </Card>
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="auto_verified">Auto Verified</SelectItem>
-              <SelectItem value="verified">Verified</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="expired">Expired</SelectItem>
-              <SelectItem value="all">All</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={methodFilter} onValueChange={setMethodFilter}>
-            <SelectTrigger className="w-[130px]">
-              <SelectValue placeholder="Method" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Methods</SelectItem>
-              <SelectItem value="bkash">bKash</SelectItem>
-              <SelectItem value="nagad">Nagad</SelectItem>
-              <SelectItem value="rocket">Rocket</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search TrxID, name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="pl-8 w-[200px] h-9 text-sm"
-            />
           </div>
-          <Button variant="outline" size="sm" onClick={handleSearch} className="h-9">
-            Search
-          </Button>
-          <span className="text-sm text-muted-foreground">{deposits.length} results</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowLogs(true)}
+              className="text-white hover:bg-white/20 h-8"
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              Logs
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSettings(true)}
+              className="text-white hover:bg-white/20 h-8"
+            >
+              <Settings className="h-4 w-4 mr-1" />
+              Config
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefresh}
+              className="text-white hover:bg-white/20 h-8"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9 gap-1.5"
-          onClick={openSettings}
-        >
-          <Settings className="h-3.5 w-3.5" />
-          Deposit Settings
-        </Button>
       </div>
 
-      {/* Deposits Table */}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        {[
+          { label: 'Total', value: stats.total || 0, icon: ArrowDownCircle, color: 'text-gray-600' },
+          { label: 'Pending', value: (stats.pending || 0) + (stats.verifying || 0), icon: Clock, color: 'text-amber-600' },
+          { label: 'Auto Verified', value: stats.autoVerified || 0, icon: ShieldCheck, color: 'text-emerald-600' },
+          { label: 'Manual', value: stats.verified || 0, icon: CheckCircle2, color: 'text-blue-600' },
+          { label: 'Rejected', value: (stats.rejected || 0) + (stats.failed || 0), icon: XCircle, color: 'text-red-600' },
+          { label: 'Expired', value: stats.expired || 0, icon: Timer, color: 'text-gray-500' },
+          {
+            label: 'Total Amount',
+            value: `${((stats.totalAmount || 0)).toLocaleString()} TK`,
+            icon: Banknote,
+            color: 'text-emerald-600',
+          },
+        ].map((stat) => (
+          <Card key={stat.label}>
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-muted-foreground font-medium truncate">{stat.label}</p>
+                <stat.icon className={`h-3.5 w-3.5 ${stat.color} shrink-0`} />
+              </div>
+              <p className="text-lg font-bold mt-1 leading-tight">{stat.value}</p>
+              {stat.label === 'Auto Verified' && (stats.total || 0) > 0 && (
+                <p className="text-[10px] text-emerald-600 font-medium">
+                  {stats.automationRate || 0}% auto rate
+                </p>
+              )}
+              {stat.label === 'Total Amount' && (
+                <p className="text-[10px] text-muted-foreground">
+                  Today: {((stats.todayAmount || 0)).toLocaleString()} TK ({stats.todayDeposits || 0} deps)
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Filters */}
       <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[160px]">User</TableHead>
-                  <TableHead className="min-w-[80px]">Amount</TableHead>
-                  <TableHead className="min-w-[80px]">Method</TableHead>
-                  <TableHead className="min-w-[110px]">Sender Number</TableHead>
-                  <TableHead className="min-w-[120px]">TrxID</TableHead>
-                  <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[100px]">Date</TableHead>
-                  {statusFilter === 'pending' && (
-                    <TableHead className="min-w-[160px] text-right">Actions</TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  [...Array(5)].map((_, i) => (
-                    <TableRow key={i}>
-                      {[...Array(8)].map((_, j) => (
-                        <TableCell key={j}>
-                          <Skeleton className="h-5 w-full" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : deposits.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
-                      No deposits found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  deposits.map((d) => (
-                    <TableRow key={d.id} className={d.status === 'pending' ? 'bg-amber-50/30' : ''}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
-                            <span className="text-xs font-semibold text-violet-600">
-                              {d.user.firstName[0]}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {d.user.firstName} {d.user.lastName || ''}
-                              {d.user.isBlocked && (
-                                <Badge variant="secondary" className="ml-1 text-[9px] bg-red-100 text-red-600 px-1 py-0 h-3.5">
-                                  BLOCKED
-                                </Badge>
-                              )}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              @{d.user.username || d.user.telegramId} &middot; Bal: {d.user.balance.toFixed(1)} TK
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-semibold text-violet-600">
-                        {d.amount.toFixed(1)} <span className="text-muted-foreground font-normal text-xs">TK</span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className="capitalize"
-                          style={{
-                            borderColor:
-                              d.paymentMethod === 'bkash' ? '#E2136E'
-                              : d.paymentMethod === 'nagad' ? '#F6921E'
-                              : '#8C3494',
-                            color:
-                              d.paymentMethod === 'bkash' ? '#E2136E'
-                              : d.paymentMethod === 'nagad' ? '#F6921E'
-                              : '#8C3494',
-                          }}
-                        >
-                          {d.paymentMethod}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{d.senderNumber}</TableCell>
-                      <TableCell>
-                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">
-                          {d.transactionId}
-                        </code>
-                        {d.verificationMethod === 'auto' && (
-                          <Badge className="ml-1 bg-emerald-100 text-emerald-700 text-[9px] px-1 py-0 h-4">
-                            AUTO
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className={STATUS_COLORS[d.status] || ''}>
-                          {STATUS_LABELS[d.status] || d.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(d.requestedAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </TableCell>
-                      {statusFilter === 'pending' && (
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                              onClick={() => setActionDialog({ d, action: 'verify' })}
-                            >
-                              <Check className="h-3.5 w-3.5 mr-1" />
-                              Verify
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50"
-                              onClick={() => setActionDialog({ d, action: 'reject' })}
-                            >
-                              <X className="h-3.5 w-3.5 mr-1" />
-                              Reject
-                            </Button>
-                          </div>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search TrxID, name, phone..."
+                className="pl-8 h-8 text-xs"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="verifying">Verifying</SelectItem>
+                <SelectItem value="auto_verified">Auto Verified</SelectItem>
+                <SelectItem value="verified">Verified</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={methodFilter} onValueChange={setMethodFilter}>
+              <SelectTrigger className="h-8 w-[120px] text-xs">
+                <SelectValue placeholder="Method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Methods</SelectItem>
+                <SelectItem value="bkash">bKash</SelectItem>
+                <SelectItem value="nagad">Nagad</SelectItem>
+                <SelectItem value="rocket">Rocket</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
 
+      {/* Deposits Table */}
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs">User</TableHead>
+                <TableHead className="text-xs">Amount</TableHead>
+                <TableHead className="text-xs">Method</TableHead>
+                <TableHead className="text-xs">TrxID</TableHead>
+                <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs">Verified</TableHead>
+                <TableHead className="text-xs">Balance</TableHead>
+                <TableHead className="text-xs text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {deposits.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-sm text-muted-foreground">
+                    No deposits found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                deposits.map((dep) => {
+                  const ss = STATUS_STYLES[dep.status] || STATUS_STYLES.pending
+                  const canVerify = ['pending', 'verifying'].includes(dep.status)
+                  const canRetry = ['failed', 'expired', 'rejected'].includes(dep.status)
+
+                  return (
+                    <TableRow key={dep.id} className="text-xs">
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{dep.user.firstName} {dep.user.lastName || ''}</p>
+                          <p className="text-muted-foreground"> @{dep.user.username || dep.user.telegramId}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-bold">{dep.amount} TK</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className={`text-[10px] ${METHOD_STYLES[dep.paymentMethod] || ''}`}>
+                          {dep.paymentMethod}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <code className="text-[10px] font-mono bg-gray-50 px-1.5 py-0.5 rounded">
+                          {dep.transactionId}
+                        </code>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{dep.senderNumber}</p>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="outline" className={`text-[10px] w-fit ${ss.badge}`}>
+                            {ss.icon}
+                            <span className="ml-1 capitalize">{dep.status.replace('_', ' ')}</span>
+                          </Badge>
+                          {dep.verificationMethod === 'auto' && (
+                            <span className="text-[9px] text-emerald-600 flex items-center gap-0.5">
+                              <ShieldCheck className="h-2.5 w-2.5" /> Auto
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {dep.verifiedAt
+                          ? new Date(dep.verifiedAt).toLocaleString()
+                          : <span className="text-muted-foreground">—</span>
+                        }
+                      </TableCell>
+                      <TableCell className="font-mono">{dep.user.balance.toFixed(0)} TK</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {canVerify && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                              onClick={() => openActionDialog(dep, 'verify')}
+                              title="Verify"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {canVerify && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                              onClick={() => openActionDialog(dep, 'reject')}
+                              title="Reject"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {canRetry && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+                              onClick={() => openActionDialog(dep, 'retry')}
+                              title="Retry"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
       {/* Action Dialog */}
-      <Dialog open={!!actionDialog} onOpenChange={(open) => !open && setActionDialog(null)}>
-        <DialogContent>
+      <Dialog open={!!actionDeposit} onOpenChange={(open) => !open && setActionDeposit(null)}>
+        <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>
-              {actionDialog?.action === 'verify'
-                ? 'Verify Deposit'
-                : actionDialog?.action === 'reject'
-                  ? 'Reject Deposit'
-                  : 'Expire Deposit'}
+            <DialogTitle className="text-sm">
+              {actionType === 'verify' && 'Verify Deposit'}
+              {actionType === 'reject' && 'Reject Deposit'}
+              {actionType === 'retry' && 'Retry Deposit'}
+              {actionType === 'expire' && 'Expire Deposit'}
             </DialogTitle>
-            <DialogDescription>
-              {actionDialog?.action === 'verify'
-                ? `Verify ${actionDialog?.d.amount} TK deposit? Balance will be credited to the user.`
-                : actionDialog?.action === 'reject'
-                  ? `Reject ${actionDialog?.d.amount} TK deposit for ${actionDialog?.d.user.firstName}?`
-                  : `Mark ${actionDialog?.d.amount} TK deposit as expired?`}
+            <DialogDescription className="text-xs">
+              {actionDeposit && (
+                <>
+                  {actionDeposit.amount} TK via {actionDeposit.paymentMethod} — TrxID: {actionDeposit.transactionId}
+                  <br />User: {actionDeposit.user.firstName} (Balance: {actionDeposit.user.balance.toFixed(0)} TK)
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
-          {actionDialog && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 p-3 bg-muted/50 rounded-lg text-sm">
-                <div>
-                  <span className="text-muted-foreground">User</span>
-                  <p className="font-semibold">
-                    {actionDialog.d.user.firstName} {actionDialog.d.user.lastName || ''}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Amount</span>
-                  <p className="font-semibold">{actionDialog.d.amount} TK</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Method</span>
-                  <p className="font-semibold capitalize">{actionDialog.d.paymentMethod}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">TrxID</span>
-                  <p className="font-mono text-xs">{actionDialog.d.transactionId}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Sender Number</span>
-                  <p className="font-mono">{actionDialog.d.senderNumber}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">User Balance</span>
-                  <p className="font-semibold">{actionDialog.d.user.balance.toFixed(1)} TK</p>
-                </div>
-              </div>
-              {actionDialog.action === 'verify' && (
-                <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                  <p className="text-xs text-emerald-700 font-medium">
-                    After verification: User balance will become{' '}
-                    <strong>{(actionDialog.d.user.balance + actionDialog.d.amount).toFixed(1)} TK</strong>
-                  </p>
-                </div>
-              )}
-              <div>
-                <Label>Admin Note</Label>
-                <Textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder={
-                    actionDialog.action === 'verify'
-                      ? 'Optional verification note'
-                      : actionDialog.action === 'reject'
-                        ? 'Reason for rejection'
-                        : 'Reason for expiration'
-                  }
-                  rows={2}
-                />
-              </div>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Note (optional)</Label>
+              <Textarea
+                value={actionNote}
+                onChange={(e) => setActionNote(e.target.value)}
+                placeholder={actionType === 'verify' ? 'Reason for manual verification...' : 'Reason for rejection...'}
+                className="mt-1 text-xs"
+                rows={2}
+              />
             </div>
-          )}
+            {actionType === 'verify' && actionDeposit?.status === 'pending' && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs text-emerald-700">
+                <strong>Preview:</strong> Balance will increase from {actionDeposit?.user.balance.toFixed(0)} TK to{' '}
+                {(actionDeposit?.user.balance + (actionDeposit?.amount || 0)).toFixed(0)} TK
+              </div>
+            )}
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setActionDialog(null); setNote('') }}>
+            <Button variant="outline" size="sm" onClick={() => setActionDeposit(null)}>
               Cancel
             </Button>
             <Button
-              variant={actionDialog?.action === 'verify' ? 'default' : 'destructive'}
+              size="sm"
               onClick={handleAction}
               disabled={actionLoading}
-              className={actionDialog?.action === 'verify' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+              className={
+                actionType === 'verify' || actionType === 'retry'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : actionType === 'reject'
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : ''
+              }
             >
-              {actionLoading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : actionDialog?.action === 'verify' ? (
-                <Check className="h-4 w-4 mr-2" />
-              ) : (
-                <X className="h-4 w-4 mr-2" />
-              )}
-              {actionLoading
-                ? 'Processing...'
-                : actionDialog?.action === 'verify'
-                  ? 'Verify & Credit'
-                  : actionDialog?.action === 'reject'
-                    ? 'Reject'
-                    : 'Expire'}
+              {actionLoading && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              {actionType === 'verify' && 'Verify & Credit'}
+              {actionType === 'reject' && 'Reject'}
+              {actionType === 'retry' && 'Retry Automation'}
+              {actionType === 'expire' && 'Mark Expired'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Settings Dialog */}
-      <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-violet-600" />
-              Deposit Settings
+              <Settings className="h-4 w-4" />
+              Deposit Automation Settings
             </DialogTitle>
-            <DialogDescription>
-              Configure payment methods, limits, and auto-verification rules.
+            <DialogDescription className="text-xs">
+              Configure the automated deposit verification system
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-5 pt-2">
-            {/* Payment Numbers */}
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Payment Numbers
-              </p>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white shrink-0 text-xs font-bold" style={{ backgroundColor: '#E2136E' }}>
-                    bK
-                  </div>
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">bKash Number</Label>
-                    <Input
-                      placeholder="01XXXXXXXXX"
-                      value={settings.bkashNumber}
-                      onChange={(e) => setSettings({ ...settings, bkashNumber: e.target.value })}
-                      className="mt-0.5 font-mono"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white shrink-0 text-xs font-bold" style={{ backgroundColor: '#F6921E' }}>
-                    Na
-                  </div>
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Nagad Number</Label>
-                    <Input
-                      placeholder="01XXXXXXXXX"
-                      value={settings.nagadNumber}
-                      onChange={(e) => setSettings({ ...settings, nagadNumber: e.target.value })}
-                      className="mt-0.5 font-mono"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white shrink-0 text-xs font-bold" style={{ backgroundColor: '#8C3494' }}>
-                    RK
-                  </div>
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Rocket Number</Label>
-                    <Input
-                      placeholder="01XXXXXXXXX"
-                      value={settings.rocketNumber}
-                      onChange={(e) => setSettings({ ...settings, rocketNumber: e.target.value })}
-                      className="mt-0.5 font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Amount Limits */}
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Amount Limits
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Min Amount (TK)</Label>
-                  <Input
-                    type="number"
-                    value={settings.minAmount}
-                    onChange={(e) => setSettings({ ...settings, minAmount: e.target.value })}
-                    className="mt-0.5"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Max Amount (TK)</Label>
-                  <Input
-                    type="number"
-                    value={settings.maxAmount}
-                    onChange={(e) => setSettings({ ...settings, maxAmount: e.target.value })}
-                    className="mt-0.5"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Auto Verification */}
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Auto Verification
-              </p>
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium">Enable Auto-Verify</p>
-                  <p className="text-xs text-muted-foreground">
-                    Deposits ≤500 TK are verified automatically
-                  </p>
-                </div>
-                <Switch
-                  checked={settings.autoVerify}
-                  onCheckedChange={(checked) => setSettings({ ...settings, autoVerify: checked })}
-                />
-              </div>
+          <ScrollArea className="max-h-[60vh] pr-3">
+            <div className="space-y-4">
+              {/* Payment Numbers */}
               <div>
-                <Label className="text-xs text-muted-foreground">Expiry Time (minutes)</Label>
-                <div className="relative mt-0.5">
-                  <Input
-                    type="number"
-                    value={settings.expireMinutes}
-                    onChange={(e) => setSettings({ ...settings, expireMinutes: e.target.value })}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                    min
-                  </span>
+                <Label className="text-xs font-semibold">Payment Numbers</Label>
+                <div className="grid gap-2 mt-2">
+                  {[
+                    { key: 'deposit_bkash_number', label: 'bKash Number', color: 'text-pink-600' },
+                    { key: 'deposit_nagad_number', label: 'Nagad Number', color: 'text-orange-600' },
+                    { key: 'deposit_rocket_number', label: 'Rocket Number', color: 'text-purple-600' },
+                  ].map((item) => (
+                    <div key={item.key}>
+                      <Label className={`text-[10px] ${item.color} font-medium`}>{item.label}</Label>
+                      <Input
+                        value={settings[item.key as keyof typeof settings]}
+                        onChange={(e) => setSettings((s) => ({ ...s, [item.key]: e.target.value }))}
+                        placeholder="01XXXXXXXXX"
+                        className="h-8 text-xs mt-0.5"
+                      />
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Pending deposits auto-expire after this time
-                </p>
+              </div>
+
+              {/* Amount Limits */}
+              <div>
+                <Label className="text-xs font-semibold">Amount Limits</Label>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Min Amount (TK)</Label>
+                    <Input
+                      type="number"
+                      value={settings.deposit_min_amount}
+                      onChange={(e) => setSettings((s) => ({ ...s, deposit_min_amount: e.target.value }))}
+                      className="h-8 text-xs mt-0.5"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Max Amount (TK)</Label>
+                    <Input
+                      type="number"
+                      value={settings.deposit_max_amount}
+                      onChange={(e) => setSettings((s) => ({ ...s, deposit_max_amount: e.target.value }))}
+                      className="h-8 text-xs mt-0.5"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Automation Controls */}
+              <div>
+                <Label className="text-xs font-semibold">Automation Controls</Label>
+                <div className="space-y-3 mt-2">
+                  {[
+                    {
+                      key: 'deposit_enabled' as const,
+                      label: 'Enable Deposits',
+                      desc: 'Allow users to submit new deposits',
+                    },
+                    {
+                      key: 'deposit_auto_verify' as const,
+                      label: 'Auto-Verify Deposits',
+                      desc: 'Automatically verify all deposits without admin intervention',
+                    },
+                    {
+                      key: 'deposit_auto_expire' as const,
+                      label: 'Auto-Expire',
+                      desc: 'Automatically expire deposits past their timeout',
+                    },
+                  ].map((toggle) => (
+                    <div key={toggle.key} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium">{toggle.label}</p>
+                        <p className="text-[10px] text-muted-foreground">{toggle.desc}</p>
+                      </div>
+                      <Switch
+                        checked={settings[toggle.key] as boolean}
+                        onCheckedChange={(checked) =>
+                          setSettings((s) => ({ ...s, [toggle.key]: checked }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Timing */}
+              <div>
+                <Label className="text-xs font-semibold">Timing</Label>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Verify Delay (s)</Label>
+                    <Input
+                      type="number"
+                      value={settings.deposit_verify_delay_seconds}
+                      onChange={(e) => setSettings((s) => ({ ...s, deposit_verify_delay_seconds: e.target.value }))}
+                      className="h-8 text-xs mt-0.5"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Expire (min)</Label>
+                    <Input
+                      type="number"
+                      value={settings.deposit_expire_minutes}
+                      onChange={(e) => setSettings((s) => ({ ...s, deposit_expire_minutes: e.target.value }))}
+                      className="h-8 text-xs mt-0.5"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Max Attempts</Label>
+                    <Input
+                      type="number"
+                      value={settings.deposit_max_verify_attempts}
+                      onChange={(e) => setSettings((s) => ({ ...s, deposit_max_verify_attempts: e.target.value }))}
+                      className="h-8 text-xs mt-0.5"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </ScrollArea>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSettingsDialog(false)}>
+            <Button variant="outline" size="sm" onClick={() => setShowSettings(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={saveSettings}
-              disabled={savingSettings}
-              className="bg-violet-600 hover:bg-violet-700 text-white"
-            >
-              {savingSettings ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Check className="h-4 w-4 mr-2" />
-              )}
-              {savingSettings ? 'Saving...' : 'Save Settings'}
+            <Button size="sm" onClick={handleSettingsSave} disabled={settingsLoading} className="bg-emerald-600 hover:bg-emerald-700">
+              {settingsLoading && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              Save Settings
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Automation Logs Dialog */}
+      <Dialog open={showLogs} onOpenChange={setShowLogs}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              Automation Logs
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {automation
+                ? `${automation.logsToday} actions today — ${automation.successRate}% success rate — ${automation.successToday} successful, ${automation.errorsToday} errors`
+                : 'No automation data'}
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[55vh] pr-2">
+            {!automation || automation.recentLogs.length === 0 ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">
+                No automation logs yet
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {automation.recentLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-white"
+                  >
+                    <div
+                      className={`h-2 w-2 rounded-full mt-1.5 shrink-0 ${
+                        log.status === 'success' ? 'bg-emerald-500'
+                        : log.status === 'error' ? 'bg-red-500'
+                        : log.status === 'warning' ? 'bg-amber-500'
+                        : 'bg-blue-500'
+                      }`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-foreground leading-relaxed">{log.message}</p>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                        <Badge variant="outline" className="text-[9px] h-4 px-1">
+                          {log.action.replace(/_/g, ' ')}
+                        </Badge>
+                        {log.deposit && (
+                          <span>
+                            {log.deposit.amount} TK via {log.deposit.paymentMethod}
+                          </span>
+                        )}
+                        <span>{new Date(log.createdAt).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>

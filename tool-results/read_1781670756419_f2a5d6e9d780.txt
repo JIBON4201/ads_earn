@@ -1,0 +1,709 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState, useCallback } from 'react'
+     4→import { motion, AnimatePresence } from 'framer-motion'
+     5→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     6→import { Button } from '@/components/ui/button'
+     7→import { Badge } from '@/components/ui/badge'
+     8→import { Input } from '@/components/ui/input'
+     9→import { Label } from '@/components/ui/label'
+    10→import { Skeleton } from '@/components/ui/skeleton'
+    11→import { Separator } from '@/components/ui/separator'
+    12→import { ScrollArea } from '@/components/ui/scroll-area'
+    13→import {
+    14→  Dialog,
+    15→  DialogContent,
+    16→  DialogHeader,
+    17→  DialogTitle,
+    18→  DialogTrigger,
+    19→} from '@/components/ui/dialog'
+    20→import {
+    21→  Select,
+    22→  SelectContent,
+    23→  SelectItem,
+    24→  SelectTrigger,
+    25→  SelectValue,
+    26→} from '@/components/ui/select'
+    27→import { toast } from 'sonner'
+    28→import {
+    29→  ArrowDownCircle,
+    30→  Copy,
+    31→  CheckCircle2,
+    32→  Clock,
+    33→  XCircle,
+    34→  Loader2,
+    35→  Smartphone,
+    36→  Send,
+    37→  Zap,
+    38→  ShieldCheck,
+    39→  AlertTriangle,
+    40→  Info,
+    41→  ExternalLink,
+    42→} from 'lucide-react'
+    43→
+    44→interface Deposit {
+    45→  id: string
+    46→  amount: number
+    47→  paymentMethod: string
+    48→  senderNumber: string
+    49→  transactionId: string
+    50→  status: string
+    51→  verificationMethod: string
+    52→  adminNote: string | null
+    53→  requestedAt: string
+    54→  verifiedAt: string | null
+    55→  expiresAt: string | null
+    56→}
+    57→
+    58→interface PaymentMethod {
+    59→  id: string
+    60→  name: string
+    61→  number: string
+    62→  color: string
+    63→  icon: string
+    64→  enabled: boolean
+    65→}
+    66→
+    67→interface DepositConfig {
+    68→  minAmount: number
+    69→  maxAmount: number
+    70→  autoVerify: boolean
+    71→  expireMinutes: number
+    72→}
+    73→
+    74→interface DepositData {
+    75→  deposits: Deposit[]
+    76→  paymentMethods: PaymentMethod[]
+    77→  config: DepositConfig
+    78→  pendingCount: number
+    79→}
+    80→
+    81→interface DepositProps {
+    82→  telegramId: number
+    83→  userId: string
+    84→}
+    85→
+    86→const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
+    87→  pending: { label: 'Pending', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Clock },
+    88→  auto_verified: { label: 'Auto Verified', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: ShieldCheck },
+    89→  verified: { label: 'Verified', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+    90→  rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
+    91→  expired: { label: 'Expired', color: 'bg-gray-100 text-gray-500 border-gray-200', icon: AlertTriangle },
+    92→}
+    93→
+    94→const METHOD_ICONS: Record<string, typeof Smartphone> = {
+    95→  mobile: Smartphone,
+    96→  send: Send,
+    97→  zap: Zap,
+    98→}
+    99→
+   100→export default function DepositComponent({ telegramId, userId }: DepositProps) {
+   101→  const [data, setData] = useState<DepositData | null>(null)
+   102→  const [loading, setLoading] = useState(true)
+   103→  const [dialogOpen, setDialogOpen] = useState(false)
+   104→  const [step, setStep] = useState<'method' | 'confirm' | 'trxid'>('method')
+   105→  const [selectedMethod, setSelectedMethod] = useState<string>('')
+   106→  const [depositAmount, setDepositAmount] = useState('')
+   107→  const [senderNumber, setSenderNumber] = useState('')
+   108→  const [transactionId, setTransactionId] = useState('')
+   109→  const [submitting, setSubmitting] = useState(false)
+   110→  const [copied, setCopied] = useState<string | null>(null)
+   111→
+   112→  const fetchData = useCallback(async () => {
+   113→    try {
+   114→      const res = await fetch(`/api/user/deposit?telegramId=${telegramId}`)
+   115→      if (res.ok) {
+   116→        const json = await res.json()
+   117→        setData(json)
+   118→      }
+   119→    } catch (e) {
+   120→      console.error(e)
+   121→    } finally {
+   122→      setLoading(false)
+   123→    }
+   124→  }, [telegramId])
+   125→
+   126→  useEffect(() => {
+   127→    fetchData()
+   128→  }, [fetchData])
+   129→
+   130→  const copyToClipboard = (text: string, id: string) => {
+   131→    navigator.clipboard.writeText(text)
+   132→    setCopied(id)
+   133→    setTimeout(() => setCopied(null), 2000)
+   134→    toast.success('Copied to clipboard!')
+   135→  }
+   136→
+   137→  const handleSubmit = async () => {
+   138→    if (!depositAmount || !senderNumber || !transactionId) {
+   139→      toast.error('Please fill in all fields')
+   140→      return
+   141→    }
+   142→
+   143→    setSubmitting(true)
+   144→    try {
+   145→      const res = await fetch('/api/user/deposit', {
+   146→        method: 'POST',
+   147→        headers: { 'Content-Type': 'application/json' },
+   148→        body: JSON.stringify({
+   149→          userId,
+   150→          amount: depositAmount,
+   151→          paymentMethod: selectedMethod,
+   152→          senderNumber,
+   153→          transactionId,
+   154→        }),
+   155→      })
+   156→
+   157→      const result = await res.json()
+   158→
+   159→      if (res.ok) {
+   160→        const isAuto = result.deposit.status === 'auto_verified'
+   161→        toast.success(result.message, {
+   162→          description: isAuto
+   163→            ? `New balance: ${result.deposit.newBalance.toFixed(1)} TK`
+   164→            : `Your deposit will be verified within ${data?.config.expireMinutes || 30} minutes.`,
+   165→          duration: isAuto ? 5000 : 4000,
+   166→        })
+   167→        // Reset form
+   168→        setSelectedMethod('')
+   169→        setDepositAmount('')
+   170→        setSenderNumber('')
+   171→        setTransactionId('')
+   172→        setStep('method')
+   173→        setDialogOpen(false)
+   174→        fetchData()
+   175→      } else {
+   176→        toast.error(result.error || 'Deposit failed')
+   177→      }
+   178→    } catch {
+   179→      toast.error('Network error. Please try again.')
+   180→    } finally {
+   181→      setSubmitting(false)
+   182→    }
+   183→  }
+   184→
+   185→  const getMethod = (id: string) => data?.paymentMethods.find((m) => m.id === id)
+   186→  const selectedMethodInfo = getMethod(selectedMethod)
+   187→
+   188→  const getExpiryCountdown = (expiresAt: string | null) => {
+   189→    if (!expiresAt) return null
+   190→    const diff = new Date(expiresAt).getTime() - Date.now()
+   191→    if (diff <= 0) return 'Expired'
+   192→    const mins = Math.floor(diff / 60000)
+   193→    const secs = Math.floor((diff % 60000) / 1000)
+   194→    return `${mins}m ${secs}s`
+   195→  }
+   196→
+   197→  if (loading) {
+   198→    return (
+   199→      <div className="space-y-4">
+   200→        <Skeleton className="h-48 rounded-xl" />
+   201→        <Skeleton className="h-32 rounded-xl" />
+   202→        {[...Array(3)].map((_, i) => (
+   203→          <Skeleton key={i} className="h-20 rounded-lg" />
+   204→        ))}
+   205→      </div>
+   206→    )
+   207→  }
+   208→
+   209→  if (!data) return null
+   210→
+   211→  return (
+   212→    <div className="space-y-5">
+   213→      {/* Deposit Header Card */}
+   214→      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+   215→        <Card className="overflow-hidden">
+   216→          <div className="bg-gradient-to-br from-violet-600 to-purple-500 p-6 text-white">
+   217→            <div className="flex items-center justify-between mb-3">
+   218→              <div className="flex items-center gap-2">
+   219→                <ArrowDownCircle className="h-5 w-5 text-purple-200" />
+   220→                <span className="text-sm text-purple-100">Deposit Funds</span>
+   221→              </div>
+   222→              {data.config.autoVerify && (
+   223→                <Badge className="bg-white/20 text-white border-white/30 text-[10px]">
+   224→                  <ShieldCheck className="h-3 w-3 mr-1" />
+   225→                  Auto-Verify Active
+   226→                </Badge>
+   227→              )}
+   228→            </div>
+   229→            <p className="text-2xl font-bold mb-1">Add Balance Instantly</p>
+   230→            <p className="text-sm text-purple-100">
+   231→              Send payment via bKash, Nagad, or Rocket and get verified{' '}
+   232→              {data.config.autoVerify ? 'automatically' : 'by admin'}
+   233→            </p>
+   234→          </div>
+   235→          <CardContent className="p-4">
+   236→            <Dialog
+   237→              open={dialogOpen}
+   238→              onOpenChange={(open) => {
+   239→                setDialogOpen(open)
+   240→                if (!open) {
+   241→                  setStep('method')
+   242→                  setSelectedMethod('')
+   243→                  setDepositAmount('')
+   244→                  setSenderNumber('')
+   245→                  setTransactionId('')
+   246→                }
+   247→              }}
+   248→            >
+   249→              <DialogTrigger asChild>
+   250→                <Button className="w-full bg-violet-600 hover:bg-violet-700 text-white h-11 text-sm font-semibold">
+   251→                  <ArrowDownCircle className="h-4 w-4 mr-2" />
+   252→                  Make a Deposit
+   253→                </Button>
+   254→              </DialogTrigger>
+   255→              <DialogContent className="sm:max-w-md">
+   256→                <DialogHeader>
+   257→                  <DialogTitle className="flex items-center gap-2">
+   258→                    <ArrowDownCircle className="h-5 w-5 text-violet-600" />
+   259→                    Deposit Funds
+   260→                  </DialogTitle>
+   261→                </DialogHeader>
+   262→
+   263→                <AnimatePresence mode="wait">
+   264→                  {/* Step 1: Select Payment Method */}
+   265→                  {step === 'method' && (
+   266→                    <motion.div
+   267→                      key="step-method"
+   268→                      initial={{ opacity: 0, x: 20 }}
+   269→                      animate={{ opacity: 1, x: 0 }}
+   270→                      exit={{ opacity: 0, x: -20 }}
+   271→                      className="space-y-4 pt-2"
+   272→                    >
+   273→                      <p className="text-sm text-muted-foreground">
+   274→                        Select your payment method to see deposit instructions:
+   275→                      </p>
+   276→                      <div className="space-y-2">
+   277→                        {data.paymentMethods.map((method) => {
+   278→                          const IconComp = METHOD_ICONS[method.icon] || Smartphone
+   279→                          const isAvailable = !!method.number
+   280→                          return (
+   281→                            <button
+   282→                              key={method.id}
+   283→                              onClick={() => isAvailable && setSelectedMethod(method.id)}
+   284→                              disabled={!isAvailable}
+   285→                              className={`w-full flex items-center gap-3 p-4 rounded-xl border-2 transition-all duration-200 ${
+   286→                                !isAvailable
+   287→                                  ? 'opacity-40 cursor-not-allowed border-gray-200'
+   288→                                  : selectedMethod === method.id
+   289→                                    ? 'border-violet-500 bg-violet-50 shadow-sm'
+   290→                                    : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/50'
+   291→                              }`}
+   292→                            >
+   293→                              <div
+   294→                                className="h-10 w-10 rounded-xl flex items-center justify-center text-white shrink-0"
+   295→                                style={{ backgroundColor: method.color }}
+   296→                              >
+   297→                                <IconComp className="h-5 w-5" />
+   298→                              </div>
+   299→                              <div className="text-left flex-1">
+   300→                                <p className="font-semibold text-sm">{method.name}</p>
+   301→                                <p className="text-xs text-muted-foreground">
+   302→                                  {isAvailable
+   303→                                    ? `Send to: ${method.number}`
+   304→                                    : 'Not configured'}
+   305→                                </p>
+   306→                              </div>
+   307→                              {isAvailable && (
+   308→                                <div className="shrink-0">
+   309→                                  <div
+   310→                                    className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${
+   311→                                      selectedMethod === method.id
+   312→                                        ? 'border-violet-500 bg-violet-500'
+   313→                                        : 'border-gray-300'
+   314→                                    }`}
+   315→                                  >
+   316→                                    {selectedMethod === method.id && (
+   317→                                      <div className="h-2 w-2 rounded-full bg-white" />
+   318→                                    )}
+   319→                                  </div>
+   320→                                </div>
+   321→                              )}
+   322→                            </button>
+   323→                          )
+   324→                        })}
+   325→                      </div>
+   326→                      <Button
+   327→                        className="w-full bg-violet-600 hover:bg-violet-700 text-white h-11"
+   328→                        disabled={!selectedMethod}
+   329→                        onClick={() => setStep('confirm')}
+   330→                      >
+   331→                        Continue
+   332→                      </Button>
+   333→                    </motion.div>
+   334→                  )}
+   335→
+   336→                  {/* Step 2: Payment Instructions & Amount */}
+   337→                  {step === 'confirm' && selectedMethodInfo && (
+   338→                    <motion.div
+   339→                      key="step-confirm"
+   340→                      initial={{ opacity: 0, x: 20 }}
+   341→                      animate={{ opacity: 1, x: 0 }}
+   342→                      exit={{ opacity: 0, x: -20 }}
+   343→                      className="space-y-4 pt-2"
+   344→                    >
+   345→                      <div
+   346→                        className="rounded-xl p-4 text-white text-center"
+   347→                        style={{ backgroundColor: selectedMethodInfo.color }}
+   348→                      >
+   349→                        <p className="text-xs opacity-80 mb-1">
+   350→                          Send payment to this {selectedMethodInfo.name} number
+   351→                        </p>
+   352→                        <div className="flex items-center justify-center gap-2 mb-2">
+   353→                          <p className="text-2xl font-bold font-mono tracking-wider">
+   354→                            {selectedMethodInfo.number}
+   355→                          </p>
+   356→                          <button
+   357→                            onClick={() => copyToClipboard(selectedMethodInfo.number, 'phone')}
+   358→                            className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+   359→                          >
+   360→                            {copied === 'phone' ? (
+   361→                              <CheckCircle2 className="h-4 w-4" />
+   362→                            ) : (
+   363→                              <Copy className="h-4 w-4" />
+   364→                            )}
+   365→                          </button>
+   366→                        </div>
+   367→                        <p className="text-xs opacity-80">
+   368→                          {data.config.minAmount} — {data.config.maxAmount} TK
+   369→                        </p>
+   370→                      </div>
+   371→
+   372→                      <div>
+   373→                        <Label className="text-sm">Amount (TK)</Label>
+   374→                        <div className="relative mt-1.5">
+   375→                          <Input
+   376→                            type="number"
+   377→                            placeholder={`Min ${data.config.minAmount} TK`}
+   378→                            value={depositAmount}
+   379→                            onChange={(e) => setDepositAmount(e.target.value)}
+   380→                            min={data.config.minAmount}
+   381→                            max={data.config.maxAmount}
+   382→                            step="1"
+   383→                          />
+   384→                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+   385→                            TK
+   386→                          </span>
+   387→                        </div>
+   388→                        <div className="flex justify-between mt-1">
+   389→                          <p className="text-xs text-muted-foreground">
+   390→                            Min: {data.config.minAmount} TK
+   391→                          </p>
+   392→                          <p className="text-xs text-muted-foreground">
+   393→                            Max: {data.config.maxAmount} TK
+   394→                          </p>
+   395→                        </div>
+   396→                        {/* Quick amount buttons */}
+   397→                        <div className="flex gap-1.5 mt-2">
+   398→                          {[50, 100, 200, 500, 1000].map((amt) => (
+   399→                            <button
+   400→                              key={amt}
+   401→                              onClick={() => setDepositAmount(amt.toString())}
+   402→                              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+   403→                                depositAmount === amt.toString()
+   404→                                  ? 'bg-violet-100 border-violet-300 text-violet-700'
+   405→                                  : 'border-gray-200 text-muted-foreground hover:border-violet-200 hover:text-violet-600'
+   406→                              }`}
+   407→                            >
+   408→                              {amt}
+   409→                            </button>
+   410→                          ))}
+   411→                        </div>
+   412→                      </div>
+   413→
+   414→                      <div>
+   415→                        <Label className="text-sm">Your {selectedMethodInfo.name} Number</Label>
+   416→                        <Input
+   417→                          type="tel"
+   418→                          placeholder="01XXXXXXXXX"
+   419→                          value={senderNumber}
+   420→                          onChange={(e) => setSenderNumber(e.target.value)}
+   421→                          className="mt-1.5"
+   422→                        />
+   423→                        <p className="text-xs text-muted-foreground mt-1">
+   424→                          The number you sent payment from
+   425→                        </p>
+   426→                      </div>
+   427→
+   428→                      {data.config.autoVerify && (
+   429→                        <div className="flex items-start gap-2 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+   430→                          <ShieldCheck className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+   431→                          <div>
+   432→                            <p className="text-xs font-medium text-emerald-700">Auto-Verify Active</p>
+   433→                            <p className="text-xs text-emerald-600">
+   434→                              Deposits up to 500 TK are verified automatically within seconds
+   435→                            </p>
+   436→                          </div>
+   437→                        </div>
+   438→                      )}
+   439→
+   440→                      <div className="flex gap-2">
+   441→                        <Button
+   442→                          variant="outline"
+   443→                          className="flex-1 h-10"
+   444→                          onClick={() => setStep('method')}
+   445→                        >
+   446→                          Back
+   447→                        </Button>
+   448→                        <Button
+   449→                          className="flex-1 bg-violet-600 hover:bg-violet-700 text-white h-10"
+   450→                          disabled={!depositAmount || !senderNumber}
+   451→                          onClick={() => setStep('trxid')}
+   452→                        >
+   453→                          Next
+   454→                        </Button>
+   455→                      </div>
+   456→                    </motion.div>
+   457→                  )}
+   458→
+   459→                  {/* Step 3: Enter TrxID */}
+   460→                  {step === 'confirm' && !selectedMethodInfo && null}
+   461→
+   462→                  {step === 'trxid' && selectedMethodInfo && (
+   463→                    <motion.div
+   464→                      key="step-trxid"
+   465→                      initial={{ opacity: 0, x: 20 }}
+   466→                      animate={{ opacity: 1, x: 0 }}
+   467→                      exit={{ opacity: 0, x: -20 }}
+   468→                      className="space-y-4 pt-2"
+   469→                    >
+   470→                      <div className="text-center space-y-2">
+   471→                        <div
+   472→                          className="h-12 w-12 rounded-full flex items-center justify-center text-white mx-auto"
+   473→                          style={{ backgroundColor: selectedMethodInfo.color }}
+   474→                        >
+   475→                          <Send className="h-5 w-5" />
+   476→                        </div>
+   477→                        <div>
+   478→                          <p className="font-semibold text-sm">
+   479→                            Confirm Your Payment
+   480→                          </p>
+   481→                          <p className="text-xs text-muted-foreground">
+   482→                            Enter the Transaction ID from your {selectedMethodInfo.name} app
+   483→                          </p>
+   484→                        </div>
+   485→                      </div>
+   486→
+   487→                      <div className="p-3 bg-gray-50 rounded-lg space-y-1.5 text-sm">
+   488→                        <div className="flex justify-between">
+   489→                          <span className="text-muted-foreground">Amount</span>
+   490→                          <span className="font-semibold">{depositAmount} TK</span>
+   491→                        </div>
+   492→                        <div className="flex justify-between">
+   493→                          <span className="text-muted-foreground">Method</span>
+   494→                          <span className="font-medium">{selectedMethodInfo.name}</span>
+   495→                        </div>
+   496→                        <div className="flex justify-between">
+   497→                          <span className="text-muted-foreground">Sent From</span>
+   498→                          <span className="font-mono text-xs">{senderNumber}</span>
+   499→                        </div>
+   500→                      </div>
+   501→
+   502→                      <div>
+   503→                        <Label className="text-sm">Transaction ID (TrxID)</Label>
+   504→                        <Input
+   505→                          placeholder="e.g. TXN8A3B2C1D"
+   506→                          value={transactionId}
+   507→                          onChange={(e) => setTransactionId(e.target.value.toUpperCase())}
+   508→                          className="mt-1.5 font-mono tracking-wider"
+   509→                        />
+   510→                        <div className="flex items-start gap-1.5 mt-1.5">
+   511→                          <Info className="h-3 w-3 text-muted-foreground mt-0.5 shrink-0" />
+   512→                          <p className="text-xs text-muted-foreground">
+   513→                            Find this in your {selectedMethodInfo.name} payment history / SMS notification
+   514→                          </p>
+   515→                        </div>
+   516→                      </div>
+   517→
+   518→                      <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
+   519→                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+   520→                        <div>
+   521→                          <p className="text-xs font-medium text-amber-700">Verification</p>
+   522→                          <p className="text-xs text-amber-600">
+   523→                            {data.config.autoVerify
+   524→                              ? `Auto-verified deposits (≤500 TK) credit instantly. Larger deposits are verified within ${data.config.expireMinutes} minutes.`
+   525→                              : `Your deposit will be verified by admin within ${data.config.expireMinutes} minutes.`}
+   526→                          </p>
+   527→                        </div>
+   528→                      </div>
+   529→
+   530→                      <div className="flex gap-2">
+   531→                        <Button
+   532→                          variant="outline"
+   533→                          className="flex-1 h-10"
+   534→                          onClick={() => setStep('confirm')}
+   535→                        >
+   536→                          Back
+   537→                        </Button>
+   538→                        <Button
+   539→                          className="flex-1 bg-violet-600 hover:bg-violet-700 text-white h-10"
+   540→                          disabled={submitting || !transactionId || transactionId.length < 6}
+   541→                          onClick={handleSubmit}
+   542→                        >
+   543→                          {submitting ? (
+   544→                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+   545→                          ) : (
+   546→                            <CheckCircle2 className="h-4 w-4 mr-2" />
+   547→                          )}
+   548→                          {submitting ? 'Submitting...' : 'Submit Deposit'}
+   549→                        </Button>
+   550→                      </div>
+   551→                    </motion.div>
+   552→                  )}
+   553→                </AnimatePresence>
+   554→              </DialogContent>
+   555→            </Dialog>
+   556→          </CardContent>
+   557→        </Card>
+   558→      </motion.div>
+   559→
+   560→      {/* Auto-Verify Info Banner */}
+   561→      {data.config.autoVerify && (
+   562→        <motion.div
+   563→          initial={{ opacity: 0, y: 5 }}
+   564→          animate={{ opacity: 1, y: 0 }}
+   565→          transition={{ delay: 0.1 }}
+   566→        >
+   567→          <Card className="border-emerald-200 bg-emerald-50/50">
+   568→            <CardContent className="p-4">
+   569→              <div className="flex items-start gap-3">
+   570→                <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+   571→                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
+   572→                </div>
+   573→                <div>
+   574→                  <p className="text-sm font-semibold text-emerald-700">Automated Verification</p>
+   575→                  <p className="text-xs text-emerald-600 mt-0.5">
+   576→                    Deposits of 500 TK or less are verified and credited automatically. 
+   577→                    Larger deposits are verified by admin within {data.config.expireMinutes} minutes.
+   578→                  </p>
+   579→                </div>
+   580→              </div>
+   581→            </CardContent>
+   582→          </Card>
+   583→        </motion.div>
+   584→      )}
+   585→
+   586→      {/* Pending Deposits */}
+   587→      {data.pendingCount > 0 && (
+   588→        <Card className="border-amber-200">
+   589→          <CardHeader className="pb-3">
+   590→            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-700">
+   591→              <Clock className="h-4 w-4" />
+   592→              Pending Deposits ({data.pendingCount})
+   593→            </CardTitle>
+   594→          </CardHeader>
+   595→          <CardContent className="pt-0 space-y-2">
+   596→            {data.deposits
+   597→              .filter((d) => d.status === 'pending')
+   598→              .map((d) => {
+   599→                const method = data.paymentMethods.find((m) => m.id === d.paymentMethod)
+   600→                const countdown = getExpiryCountdown(d.expiresAt)
+   601→                return (
+   602→                  <div key={d.id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
+   603→                    <div>
+   604→                      <p className="text-sm font-medium">{d.amount.toFixed(1)} TK</p>
+   605→                      <p className="text-xs text-muted-foreground">
+   606→                        {method?.name || d.paymentMethod} — TrxID: {d.transactionId}
+   607→                      </p>
+   608→                    </div>
+   609→                    <div className="text-right">
+   610→                      <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200 text-xs">
+   611→                        <Clock className="h-3 w-3 mr-1" />
+   612→                        {countdown || 'Pending'}
+   613→                      </Badge>
+   614→                    </div>
+   615→                  </div>
+   616→                )
+   617→              })}
+   618→          </CardContent>
+   619→        </Card>
+   620→      )}
+   621→
+   622→      {/* Deposit History */}
+   623→      <Card>
+   624→        <CardHeader className="pb-3">
+   625→          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+   626→            <ArrowDownCircle className="h-4 w-4 text-violet-500" />
+   627→            Deposit History
+   628→          </CardTitle>
+   629→        </CardHeader>
+   630→        <CardContent className="pt-0">
+   631→          {data.deposits.length === 0 ? (
+   632→            <div className="text-center py-8 space-y-2">
+   633→              <div className="h-12 w-12 rounded-full bg-violet-100 flex items-center justify-center mx-auto">
+   634→                <ArrowDownCircle className="h-6 w-6 text-violet-400" />
+   635→              </div>
+   636→              <p className="text-sm text-muted-foreground">No deposits yet</p>
+   637→              <p className="text-xs text-muted-foreground">
+   638→                Make your first deposit to add balance
+   639→              </p>
+   640→            </div>
+   641→          ) : (
+   642→            <ScrollArea className="max-h-96">
+   643→              <div className="space-y-1">
+   644→                {data.deposits.map((d, i) => {
+   645→                  const statusConf = STATUS_CONFIG[d.status] || STATUS_CONFIG.pending
+   646→                  const StatusIcon = statusConf.icon
+   647→                  const method = data.paymentMethods.find((m) => m.id === d.paymentMethod)
+   648→                  return (
+   649→                    <motion.div
+   650→                      key={d.id}
+   651→                      initial={{ opacity: 0, x: -5 }}
+   652→                      animate={{ opacity: 1, x: 0 }}
+   653→                      transition={{ delay: i * 0.03, duration: 0.2 }}
+   654→                    >
+   655→                      <div className="flex items-center gap-3 py-2.5">
+   656→                        <div
+   657→                          className="p-2 rounded-lg shrink-0"
+   658→                          style={{ backgroundColor: method ? `${method.color}15` : '#f3f4f6' }}
+   659→                        >
+   660→                          <StatusIcon
+   661→                            className={`h-4 w-4`}
+   662→                            style={{ color: method?.color || '#9ca3af' }}
+   663→                          />
+   664→                        </div>
+   665→                        <div className="flex-1 min-w-0">
+   666→                          <div className="flex items-center gap-2">
+   667→                            <p className="text-sm leading-tight font-medium">
+   668→                              +{d.amount.toFixed(1)} TK
+   669→                            </p>
+   670→                            <Badge
+   671→                              variant="outline"
+   672→                              className={`text-[10px] px-1.5 py-0 h-4 ${statusConf.color}`}
+   673→                            >
+   674→                              {statusConf.label}
+   675→                            </Badge>
+   676→                            {d.verificationMethod === 'auto' && (
+   677→                              <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1 py-0 h-4">
+   678→                                AUTO
+   679→                              </Badge>
+   680→                            )}
+   681→                          </div>
+   682→                          <p className="text-xs text-muted-foreground mt-0.5">
+   683→                            {method?.name || d.paymentMethod} — {d.transactionId}
+   684→                          </p>
+   685→                          <p className="text-[10px] text-muted-foreground">
+   686→                            {new Date(d.requestedAt).toLocaleDateString('en-US', {
+   687→                              month: 'short',
+   688→                              day: 'numeric',
+   689→                              hour: '2-digit',
+   690→                              minute: '2-digit',
+   691→                            })}
+   692→                            {d.adminNote && (
+   693→                              <span className="ml-1.5 text-amber-600">— {d.adminNote}</span>
+   694→                            )}
+   695→                          </p>
+   696→                        </div>
+   697→                      </div>
+   698→                      {i < data.deposits.length - 1 && <Separator />}
+   699→                    </motion.div>
+   700→                  )
+   701→                })}
+   702→              </div>
+   703→            </ScrollArea>
+   704→          )}
+   705→        </CardContent>
+   706→      </Card>
+   707→    </div>
+   708→  )
+   709→}

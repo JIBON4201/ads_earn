@@ -189,12 +189,28 @@ model Deposit {
   paymentMethod   String   // bkash, nagad, rocket
   senderNumber    String   // user's payment number they sent from
   transactionId   String   // TrxID from payment app
-  status          String   @default("pending") // pending, auto_verified, verified, rejected, expired
-  verificationMethod String @default("manual") // manual, auto
+  status          String   @default("pending") // pending, verifying, auto_verified, verified, rejected, expired, failed
+  verificationMethod String @default("auto") // manual, auto
   adminNote       String?
   screenshotUrl   String?  // payment screenshot URL (optional)
   requestedAt     DateTime @default(now())
   verifiedAt      DateTime?
   processedBy     String?
   expiresAt       DateTime? // auto-expire unverified deposits
+  verificationStartedAt DateTime? // when auto-verification began
+  verificationAttempts Int @default(0) // how many times verification was attempted
+
+  automationLogs  DepositAutomationLog[]
+}
+
+// Deposit automation log (tracks all automated actions)
+model DepositAutomationLog {
+  id              String   @id @default(cuid())
+  depositId       String
+  deposit         Deposit  @relation(fields: [depositId], references: [id], onDelete: Cascade)
+  action          String   // verify_started, verify_success, verify_failed, expired, rejected_auto
+  status          String   // success, error, warning
+  message         String
+  metadata        String?  // JSON with extra context
+  createdAt       DateTime @default(now())
 }

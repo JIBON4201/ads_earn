@@ -1,13 +1,14 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 
-// GET: Fetch all deposits with filters
+// GET: Fetch all deposits with filters + automation stats
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
     const method = searchParams.get('method')
     const search = searchParams.get('search')
+    const includeAutomation = searchParams.get('automation') === 'true'
 
     const where: Record<string, unknown> = {}
 
@@ -50,30 +51,103 @@ export async function GET(request: NextRequest) {
     })
 
     // Get stats
-    const [totalDeposits, pendingCount, autoVerifiedCount, verifiedCount, rejectedCount, totalAmount] =
-      await Promise.all([
-        db.deposit.count(),
-        db.deposit.count({ where: { status: 'pending' } }),
-        db.deposit.count({ where: { status: 'auto_verified' } }),
-        db.deposit.count({ where: { status: 'verified' } }),
-        db.deposit.count({ where: { status: 'rejected' } }),
-        db.deposit.aggregate({
-          _sum: { amount: true },
-          where: { status: { in: ['auto_verified', 'verified'] } },
-        }),
-      ])
+    const [
+      totalDeposits,
+      pendingCount,
+      verifyingCount,
+      autoVerifiedCount,
+      verifiedCount,
+      rejectedCount,
+      expiredCount,
+      failedCount,
+      totalAmountResult,
+      todayDepositsResult,
+      todayAmountResult,
+    ] = await Promise.all([
+      db.deposit.count(),
+      db.deposit.count({ where: { status: 'pending' } }),
+      db.deposit.count({ where: { status: 'verifying' } }),
+      db.deposit.count({ where: { status: 'auto_verified' } }),
+      db.deposit.count({ where: { status: 'verified' } }),
+      db.deposit.count({ where: { status: 'rejected' } }),
+      db.deposit.count({ where: { status: 'expired' } }),
+      db.deposit.count({ where: { status: 'failed' } }),
+      db.deposit.aggregate({
+        _sum: { amount: true },
+        where: { status: { in: ['auto_verified', 'verified'] } },
+      }),
+      db.deposit.count({
+        where: { requestedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
+      }),
+      db.deposit.aggregate({
+        _sum: { amount: true },
+        where: {
+          status: { in: ['auto_verified', 'verified'] },
+          verifiedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+        },
+      }),
+    ])
 
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       deposits,
       stats: {
         total: totalDeposits,
         pending: pendingCount,
+        verifying: verifyingCount,
         autoVerified: autoVerifiedCount,
         verified: verifiedCount,
         rejected: rejectedCount,
-        totalAmount: totalAmount._sum.amount || 0,
+        expired: expiredCount,
+        failed: failedCount,
+        totalAmount: totalAmountResult._sum.amount || 0,
+        todayDeposits: todayDepositsResult,
+        todayAmount: todayAmountResult._sum.amount || 0,
+        automationRate: totalDeposits > 0
+          ? Math.round(((autoVerifiedCount + verifiedCount) / totalDeposits) * 100)
+          : 0,
       },
-    })
+    }
+
+    // Include automation stats if requested
+    if (includeAutomation) {
+      const todayStart = new Date(new Date().setHours(0, 0, 0, 0))
+      const [automationLogsToday, automationSuccess, automationErrors, recentLogs] = await Promise.all([
+        db.depositAutomationLog.count({
+          where: { createdAt: { gte: todayStart } },
+        }),
+        db.depositAutomationLog.count({
+          where: { status: 'success', createdAt: { gte: todayStart } },
+        }),
+        db.depositAutomationLog.count({
+          where: { status: 'error', createdAt: { gte: todayStart } },
+        }),
+        db.depositAutomationLog.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          include: {
+            deposit: {
+              select: {
+                amount: true,
+                paymentMethod: true,
+                transactionId: true,
+                status: true,
+                user: { select: { firstName: true, telegramId: true } },
+              },
+            },
+          },
+        }),
+      ])
+
+      response.automation = {
+        logsToday: automationLogsToday,
+        successToday: automationSuccess,
+        errorsToday: automationErrors,
+        successRate: automationLogsToday > 0 ? Math.round((automationSuccess / automationLogsToday) * 100) : 0,
+        recentLogs,
+      }
+    }
+
+    return NextResponse.json(response)
   } catch (error) {
     console.error('Admin deposits fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch deposits' }, { status: 500 })
@@ -90,7 +164,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'depositId and action are required' }, { status: 400 })
     }
 
-    const validActions = ['verify', 'reject', 'expire']
+    const validActions = ['verify', 'reject', 'expire', 'retry']
     if (!validActions.includes(action)) {
       return NextResponse.json(
         { error: `Invalid action. Use: ${validActions.join(', ')}` },
@@ -107,14 +181,46 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Deposit not found' }, { status: 404 })
     }
 
-    if (!['pending', 'auto_verified'].includes(deposit.status)) {
+    if (action === 'retry') {
+      // Reset failed/expired deposit to pending for re-verification
+      if (!['failed', 'expired', 'rejected'].includes(deposit.status)) {
+        return NextResponse.json({ error: 'Only failed/expired/rejected deposits can be retried' }, { status: 400 })
+      }
+
+      const newExpiresAt = new Date(Date.now() + 30 * 60 * 1000)
+      const updated = await db.deposit.update({
+        where: { id: depositId },
+        data: {
+          status: 'pending',
+          expiresAt: newExpiresAt,
+          verificationAttempts: 0,
+          adminNote: 'Retry initiated by admin',
+          verificationStartedAt: null,
+        },
+      })
+
+      await db.depositAutomationLog.create({
+        data: {
+          depositId,
+          action: 'retry',
+          status: 'info',
+          message: `Admin initiated retry for ${deposit.amount} TK deposit`,
+        },
+      })
+
+      return NextResponse.json({
+        deposit: updated,
+        message: `Deposit of ${deposit.amount} TK reset to pending. Automator will re-process it.`,
+      })
+    }
+
+    if (!['pending', 'verifying', 'auto_verified'].includes(deposit.status)) {
       return NextResponse.json({ error: 'Deposit is already processed' }, { status: 400 })
     }
 
     if (action === 'verify') {
-      // Credit balance if not already credited (auto_verified already credits)
       let newBalance = deposit.user.balance
-      if (deposit.status === 'pending') {
+      if (deposit.status === 'pending' || deposit.status === 'verifying') {
         newBalance = deposit.user.balance + deposit.amount
         await db.botUser.update({
           where: { id: deposit.userId },
@@ -127,7 +233,7 @@ export async function PATCH(request: NextRequest) {
             type: 'deposit',
             amount: deposit.amount,
             balanceAfter: newBalance,
-            description: `Deposit verified via ${deposit.paymentMethod} (TrxID: ${deposit.transactionId})`,
+            description: `Deposit verified by admin via ${deposit.paymentMethod} (TrxID: ${deposit.transactionId})`,
             metadata: JSON.stringify({
               depositId: deposit.id,
               paymentMethod: deposit.paymentMethod,
@@ -142,9 +248,19 @@ export async function PATCH(request: NextRequest) {
         where: { id: depositId },
         data: {
           status: 'verified',
+          verificationMethod: 'manual',
           verifiedAt: new Date(),
           processedBy: 'admin',
           adminNote: adminNote || 'Verified by admin',
+        },
+      })
+
+      await db.depositAutomationLog.create({
+        data: {
+          depositId,
+          action: 'verify_success',
+          status: 'success',
+          message: `Admin manually verified ${deposit.amount} TK deposit. Balance: ${newBalance} TK`,
         },
       })
 
@@ -166,6 +282,15 @@ export async function PATCH(request: NextRequest) {
         },
       })
 
+      await db.depositAutomationLog.create({
+        data: {
+          depositId,
+          action: 'rejected_auto',
+          status: 'warning',
+          message: `Admin rejected deposit. Reason: ${adminNote || 'Rejected by admin'}`,
+        },
+      })
+
       return NextResponse.json({
         deposit: updated,
         message: `Deposit of ${deposit.amount} TK rejected.`,
@@ -178,8 +303,17 @@ export async function PATCH(request: NextRequest) {
         data: {
           status: 'expired',
           verifiedAt: new Date(),
-          processedBy: 'system',
+          processedBy: 'admin',
           adminNote: adminNote || 'Expired — verification timeout',
+        },
+      })
+
+      await db.depositAutomationLog.create({
+        data: {
+          depositId,
+          action: 'expired',
+          status: 'warning',
+          message: `Admin marked deposit as expired. ${adminNote || ''}`,
         },
       })
 
@@ -208,6 +342,10 @@ export async function POST(request: NextRequest) {
       deposit_max_amount,
       deposit_auto_verify,
       deposit_expire_minutes,
+      deposit_verify_delay_seconds,
+      deposit_max_verify_attempts,
+      deposit_auto_expire,
+      deposit_enabled,
     } = body
 
     const settingsToUpdate = [
@@ -216,8 +354,12 @@ export async function POST(request: NextRequest) {
       { key: 'deposit_rocket_number', value: deposit_rocket_number || '' },
       { key: 'deposit_min_amount', value: deposit_min_amount || '10' },
       { key: 'deposit_max_amount', value: deposit_max_amount || '50000' },
-      { key: 'deposit_auto_verify', value: deposit_auto_verify ? 'true' : 'false' },
+      { key: 'deposit_auto_verify', value: deposit_auto_verify !== false ? 'true' : 'false' },
       { key: 'deposit_expire_minutes', value: deposit_expire_minutes || '30' },
+      { key: 'deposit_verify_delay_seconds', value: deposit_verify_delay_seconds || '8' },
+      { key: 'deposit_max_verify_attempts', value: deposit_max_verify_attempts || '3' },
+      { key: 'deposit_auto_expire', value: deposit_auto_expire !== false ? 'true' : 'false' },
+      { key: 'deposit_enabled', value: deposit_enabled !== false ? 'true' : 'false' },
     ]
 
     for (const s of settingsToUpdate) {

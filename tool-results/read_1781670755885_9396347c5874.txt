@@ -1,0 +1,731 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState } from 'react'
+     4→import { Card, CardContent } from '@/components/ui/card'
+     5→import { Button } from '@/components/ui/button'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Skeleton } from '@/components/ui/skeleton'
+     8→import { Input } from '@/components/ui/input'
+     9→import { Textarea } from '@/components/ui/textarea'
+    10→import { Label } from '@/components/ui/label'
+    11→import { Switch } from '@/components/ui/switch'
+    12→import {
+    13→  Table,
+    14→  TableBody,
+    15→  TableCell,
+    16→  TableHead,
+    17→  TableHeader,
+    18→  TableRow,
+    19→} from '@/components/ui/table'
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogFooter,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→} from '@/components/ui/dialog'
+    28→import {
+    29→  Select,
+    30→  SelectContent,
+    31→  SelectItem,
+    32→  SelectTrigger,
+    33→  SelectValue,
+    34→} from '@/components/ui/select'
+    35→import { toast } from 'sonner'
+    36→import {
+    37→  Check,
+    38→  X,
+    39→  Clock,
+    40→  ShieldCheck,
+    41→  CheckCircle2,
+    42→  XCircle,
+    43→  AlertTriangle,
+    44→  ArrowDownCircle,
+    45→  Settings,
+    46→  Loader2,
+    47→  Search,
+    48→  TrendingUp,
+    49→  Banknote,
+    50→  Timer,
+    51→} from 'lucide-react'
+    52→
+    53→interface Deposit {
+    54→  id: string
+    55→  amount: number
+    56→  paymentMethod: string
+    57→  senderNumber: string
+    58→  transactionId: string
+    59→  status: string
+    60→  verificationMethod: string
+    61→  adminNote: string | null
+    62→  requestedAt: string
+    63→  verifiedAt: string | null
+    64→  expiresAt: string | null
+    65→  user: {
+    66→    id: string
+    67→    firstName: string
+    68→    lastName: string | null
+    69→    username: string | null
+    70→    telegramId: number
+    71→    balance: number
+    72→    vipLevel: number
+    73→    isBlocked: boolean
+    74→  }
+    75→}
+    76→
+    77→interface DepositStats {
+    78→  total: number
+    79→  pending: number
+    80→  autoVerified: number
+    81→  verified: number
+    82→  rejected: number
+    83→  totalAmount: number
+    84→}
+    85→
+    86→const STATUS_COLORS: Record<string, string> = {
+    87→  pending: 'bg-amber-100 text-amber-700',
+    88→  auto_verified: 'bg-emerald-100 text-emerald-700',
+    89→  verified: 'bg-emerald-100 text-emerald-700',
+    90→  rejected: 'bg-red-100 text-red-700',
+    91→  expired: 'bg-gray-100 text-gray-500',
+    92→}
+    93→
+    94→const STATUS_LABELS: Record<string, string> = {
+    95→  pending: 'Pending',
+    96→  auto_verified: 'Auto Verified',
+    97→  verified: 'Verified',
+    98→  rejected: 'Rejected',
+    99→  expired: 'Expired',
+   100→}
+   101→
+   102→export default function DepositsPanel() {
+   103→  const [deposits, setDeposits] = useState<Deposit[]>([])
+   104→  const [stats, setStats] = useState<DepositStats | null>(null)
+   105→  const [loading, setLoading] = useState(true)
+   106→  const [statusFilter, setStatusFilter] = useState('pending')
+   107→  const [methodFilter, setMethodFilter] = useState('all')
+   108→  const [searchQuery, setSearchQuery] = useState('')
+   109→  const [actionDialog, setActionDialog] = useState<{
+   110→    d: Deposit
+   111→    action: 'verify' | 'reject' | 'expire'
+   112→  } | null>(null)
+   113→  const [settingsDialog, setSettingsDialog] = useState(false)
+   114→  const [note, setNote] = useState('')
+   115→  const [actionLoading, setActionLoading] = useState(false)
+   116→
+   117→  // Settings state
+   118→  const [settings, setSettings] = useState({
+   119→    bkashNumber: '',
+   120→    nagadNumber: '',
+   121→    rocketNumber: '',
+   122→    minAmount: '10',
+   123→    maxAmount: '50000',
+   124→    autoVerify: false,
+   125→    expireMinutes: '30',
+   126→  })
+   127→  const [savingSettings, setSavingSettings] = useState(false)
+   128→
+   129→  const loadDeposits = () => {
+   130→    setLoading(true)
+   131→    const params = new URLSearchParams()
+   132→    if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+   133→    if (methodFilter && methodFilter !== 'all') params.set('method', methodFilter)
+   134→    if (searchQuery) params.set('search', searchQuery)
+   135→
+   136→    fetch(`/api/admin/deposits?${params}`)
+   137→      .then((r) => r.json())
+   138→      .then((data) => {
+   139→        setDeposits(data.deposits || [])
+   140→        setStats(data.stats || null)
+   141→        setLoading(false)
+   142→      })
+   143→      .catch(() => setLoading(false))
+   144→  }
+   145→
+   146→  useEffect(() => {
+   147→    // eslint-disable-next-line react-hooks/set-state-in-effect
+   148→    loadDeposits()
+   149→  }, [statusFilter, methodFilter])
+   150→
+   151→  const handleSearch = () => {
+   152→    loadDeposits()
+   153→  }
+   154→
+   155→  const handleAction = async () => {
+   156→    if (!actionDialog) return
+   157→    setActionLoading(true)
+   158→    try {
+   159→      const res = await fetch('/api/admin/deposits', {
+   160→        method: 'PATCH',
+   161→        headers: { 'Content-Type': 'application/json' },
+   162→        body: JSON.stringify({
+   163→          depositId: actionDialog.d.id,
+   164→          action: actionDialog.action,
+   165→          adminNote: note || undefined,
+   166→        }),
+   167→      })
+   168→      if (res.ok) {
+   169→        const data = await res.json()
+   170→        toast.success(data.message || `Deposit ${actionDialog.action}d`)
+   171→        setActionDialog(null)
+   172→        setNote('')
+   173→        loadDeposits()
+   174→      } else {
+   175→        const err = await res.json()
+   176→        toast.error(err.error || 'Action failed')
+   177→      }
+   178→    } catch {
+   179→      toast.error('Network error')
+   180→    }
+   181→    setActionLoading(false)
+   182→  }
+   183→
+   184→  const loadSettings = async () => {
+   185→    try {
+   186→      const allSettings = await fetch('/api/admin/settings').then((r) => r.json())
+   187→      const settingMap: Record<string, string> = {}
+   188→      for (const s of allSettings.settings || []) {
+   189→        settingMap[s.key] = s.value
+   190→      }
+   191→      setSettings({
+   192→        bkashNumber: settingMap.deposit_bkash_number || '',
+   193→        nagadNumber: settingMap.deposit_nagad_number || '',
+   194→        rocketNumber: settingMap.deposit_rocket_number || '',
+   195→        minAmount: settingMap.deposit_min_amount || '10',
+   196→        maxAmount: settingMap.deposit_max_amount || '50000',
+   197→        autoVerify: settingMap.deposit_auto_verify === 'true',
+   198→        expireMinutes: settingMap.deposit_expire_minutes || '30',
+   199→      })
+   200→    } catch {
+   201→      // ignore
+   202→    }
+   203→  }
+   204→
+   205→  const openSettings = () => {
+   206→    loadSettings()
+   207→    setSettingsDialog(true)
+   208→  }
+   209→
+   210→  const saveSettings = async () => {
+   211→    setSavingSettings(true)
+   212→    try {
+   213→      const res = await fetch('/api/admin/deposits', {
+   214→        method: 'POST',
+   215→        headers: { 'Content-Type': 'application/json' },
+   216→        body: JSON.stringify({
+   217→          deposit_bkash_number: settings.bkashNumber,
+   218→          deposit_nagad_number: settings.nagadNumber,
+   219→          deposit_rocket_number: settings.rocketNumber,
+   220→          deposit_min_amount: settings.minAmount,
+   221→          deposit_max_amount: settings.maxAmount,
+   222→          deposit_auto_verify: settings.autoVerify,
+   223→          deposit_expire_minutes: settings.expireMinutes,
+   224→        }),
+   225→      })
+   226→      if (res.ok) {
+   227→        toast.success('Deposit settings saved')
+   228→        setSettingsDialog(false)
+   229→        loadDeposits()
+   230→      } else {
+   231→        toast.error('Failed to save settings')
+   232→      }
+   233→    } catch {
+   234→      toast.error('Network error')
+   235→    }
+   236→    setSavingSettings(false)
+   237→  }
+   238→
+   239→  return (
+   240→    <div className="space-y-4">
+   241→      {/* Stats Cards */}
+   242→      {stats && (
+   243→        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+   244→          <Card className="p-4">
+   245→            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+   246→              <ArrowDownCircle className="h-4 w-4" />
+   247→              <span className="text-xs">Total</span>
+   248→            </div>
+   249→            <p className="text-xl font-bold">{stats.total}</p>
+   250→          </Card>
+   251→          <Card className="p-4">
+   252→            <div className="flex items-center gap-2 text-amber-500 mb-1">
+   253→              <Clock className="h-4 w-4" />
+   254→              <span className="text-xs">Pending</span>
+   255→            </div>
+   256→            <p className="text-xl font-bold text-amber-600">{stats.pending}</p>
+   257→          </Card>
+   258→          <Card className="p-4">
+   259→            <div className="flex items-center gap-2 text-emerald-500 mb-1">
+   260→              <ShieldCheck className="h-4 w-4" />
+   261→              <span className="text-xs">Auto Verified</span>
+   262→            </div>
+   263→            <p className="text-xl font-bold text-emerald-600">{stats.autoVerified}</p>
+   264→          </Card>
+   265→          <Card className="p-4">
+   266→            <div className="flex items-center gap-2 text-emerald-500 mb-1">
+   267→              <CheckCircle2 className="h-4 w-4" />
+   268→              <span className="text-xs">Manual</span>
+   269→            </div>
+   270→            <p className="text-xl font-bold text-emerald-600">{stats.verified}</p>
+   271→          </Card>
+   272→          <Card className="p-4">
+   273→            <div className="flex items-center gap-2 text-red-500 mb-1">
+   274→              <XCircle className="h-4 w-4" />
+   275→              <span className="text-xs">Rejected</span>
+   276→            </div>
+   277→            <p className="text-xl font-bold text-red-600">{stats.rejected}</p>
+   278→          </Card>
+   279→          <Card className="p-4">
+   280→            <div className="flex items-center gap-2 text-violet-500 mb-1">
+   281→              <TrendingUp className="h-4 w-4" />
+   282→              <span className="text-xs">Total Amount</span>
+   283→            </div>
+   284→            <p className="text-xl font-bold text-violet-600">{stats.totalAmount.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">TK</span></p>
+   285→          </Card>
+   286→        </div>
+   287→      )}
+   288→
+   289→      {/* Filters */}
+   290→      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
+   291→        <div className="flex items-center gap-2 flex-wrap">
+   292→          <Select value={statusFilter} onValueChange={setStatusFilter}>
+   293→            <SelectTrigger className="w-[160px]">
+   294→              <SelectValue placeholder="Status" />
+   295→            </SelectTrigger>
+   296→            <SelectContent>
+   297→              <SelectItem value="pending">Pending</SelectItem>
+   298→              <SelectItem value="auto_verified">Auto Verified</SelectItem>
+   299→              <SelectItem value="verified">Verified</SelectItem>
+   300→              <SelectItem value="rejected">Rejected</SelectItem>
+   301→              <SelectItem value="expired">Expired</SelectItem>
+   302→              <SelectItem value="all">All</SelectItem>
+   303→            </SelectContent>
+   304→          </Select>
+   305→          <Select value={methodFilter} onValueChange={setMethodFilter}>
+   306→            <SelectTrigger className="w-[130px]">
+   307→              <SelectValue placeholder="Method" />
+   308→            </SelectTrigger>
+   309→            <SelectContent>
+   310→              <SelectItem value="all">All Methods</SelectItem>
+   311→              <SelectItem value="bkash">bKash</SelectItem>
+   312→              <SelectItem value="nagad">Nagad</SelectItem>
+   313→              <SelectItem value="rocket">Rocket</SelectItem>
+   314→            </SelectContent>
+   315→          </Select>
+   316→          <div className="relative">
+   317→            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   318→            <Input
+   319→              placeholder="Search TrxID, name..."
+   320→              value={searchQuery}
+   321→              onChange={(e) => setSearchQuery(e.target.value)}
+   322→              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+   323→              className="pl-8 w-[200px] h-9 text-sm"
+   324→            />
+   325→          </div>
+   326→          <Button variant="outline" size="sm" onClick={handleSearch} className="h-9">
+   327→            Search
+   328→          </Button>
+   329→          <span className="text-sm text-muted-foreground">{deposits.length} results</span>
+   330→        </div>
+   331→        <Button
+   332→          variant="outline"
+   333→          size="sm"
+   334→          className="h-9 gap-1.5"
+   335→          onClick={openSettings}
+   336→        >
+   337→          <Settings className="h-3.5 w-3.5" />
+   338→          Deposit Settings
+   339→        </Button>
+   340→      </div>
+   341→
+   342→      {/* Deposits Table */}
+   343→      <Card>
+   344→        <CardContent className="p-0">
+   345→          <div className="overflow-x-auto">
+   346→            <Table>
+   347→              <TableHeader>
+   348→                <TableRow>
+   349→                  <TableHead className="min-w-[160px]">User</TableHead>
+   350→                  <TableHead className="min-w-[80px]">Amount</TableHead>
+   351→                  <TableHead className="min-w-[80px]">Method</TableHead>
+   352→                  <TableHead className="min-w-[110px]">Sender Number</TableHead>
+   353→                  <TableHead className="min-w-[120px]">TrxID</TableHead>
+   354→                  <TableHead className="min-w-[100px]">Status</TableHead>
+   355→                  <TableHead className="min-w-[100px]">Date</TableHead>
+   356→                  {statusFilter === 'pending' && (
+   357→                    <TableHead className="min-w-[160px] text-right">Actions</TableHead>
+   358→                  )}
+   359→                </TableRow>
+   360→              </TableHeader>
+   361→              <TableBody>
+   362→                {loading ? (
+   363→                  [...Array(5)].map((_, i) => (
+   364→                    <TableRow key={i}>
+   365→                      {[...Array(8)].map((_, j) => (
+   366→                        <TableCell key={j}>
+   367→                          <Skeleton className="h-5 w-full" />
+   368→                        </TableCell>
+   369→                      ))}
+   370→                    </TableRow>
+   371→                  ))
+   372→                ) : deposits.length === 0 ? (
+   373→                  <TableRow>
+   374→                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+   375→                      No deposits found
+   376→                    </TableCell>
+   377→                  </TableRow>
+   378→                ) : (
+   379→                  deposits.map((d) => (
+   380→                    <TableRow key={d.id} className={d.status === 'pending' ? 'bg-amber-50/30' : ''}>
+   381→                      <TableCell>
+   382→                        <div className="flex items-center gap-2">
+   383→                          <div className="h-7 w-7 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
+   384→                            <span className="text-xs font-semibold text-violet-600">
+   385→                              {d.user.firstName[0]}
+   386→                            </span>
+   387→                          </div>
+   388→                          <div className="min-w-0">
+   389→                            <p className="text-sm font-medium truncate">
+   390→                              {d.user.firstName} {d.user.lastName || ''}
+   391→                              {d.user.isBlocked && (
+   392→                                <Badge variant="secondary" className="ml-1 text-[9px] bg-red-100 text-red-600 px-1 py-0 h-3.5">
+   393→                                  BLOCKED
+   394→                                </Badge>
+   395→                              )}
+   396→                            </p>
+   397→                            <p className="text-xs text-muted-foreground">
+   398→                              @{d.user.username || d.user.telegramId} &middot; Bal: {d.user.balance.toFixed(1)} TK
+   399→                            </p>
+   400→                          </div>
+   401→                        </div>
+   402→                      </TableCell>
+   403→                      <TableCell className="font-semibold text-violet-600">
+   404→                        {d.amount.toFixed(1)} <span className="text-muted-foreground font-normal text-xs">TK</span>
+   405→                      </TableCell>
+   406→                      <TableCell>
+   407→                        <Badge
+   408→                          variant="outline"
+   409→                          className="capitalize"
+   410→                          style={{
+   411→                            borderColor:
+   412→                              d.paymentMethod === 'bkash' ? '#E2136E'
+   413→                              : d.paymentMethod === 'nagad' ? '#F6921E'
+   414→                              : '#8C3494',
+   415→                            color:
+   416→                              d.paymentMethod === 'bkash' ? '#E2136E'
+   417→                              : d.paymentMethod === 'nagad' ? '#F6921E'
+   418→                              : '#8C3494',
+   419→                          }}
+   420→                        >
+   421→                          {d.paymentMethod}
+   422→                        </Badge>
+   423→                      </TableCell>
+   424→                      <TableCell className="font-mono text-sm">{d.senderNumber}</TableCell>
+   425→                      <TableCell>
+   426→                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">
+   427→                          {d.transactionId}
+   428→                        </code>
+   429→                        {d.verificationMethod === 'auto' && (
+   430→                          <Badge className="ml-1 bg-emerald-100 text-emerald-700 text-[9px] px-1 py-0 h-4">
+   431→                            AUTO
+   432→                          </Badge>
+   433→                        )}
+   434→                      </TableCell>
+   435→                      <TableCell>
+   436→                        <Badge variant="secondary" className={STATUS_COLORS[d.status] || ''}>
+   437→                          {STATUS_LABELS[d.status] || d.status}
+   438→                        </Badge>
+   439→                      </TableCell>
+   440→                      <TableCell className="text-sm text-muted-foreground">
+   441→                        {new Date(d.requestedAt).toLocaleDateString('en-US', {
+   442→                          month: 'short',
+   443→                          day: 'numeric',
+   444→                          hour: '2-digit',
+   445→                          minute: '2-digit',
+   446→                        })}
+   447→                      </TableCell>
+   448→                      {statusFilter === 'pending' && (
+   449→                        <TableCell className="text-right">
+   450→                          <div className="flex items-center justify-end gap-1">
+   451→                            <Button
+   452→                              size="sm"
+   453→                              variant="outline"
+   454→                              className="h-8 text-xs text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+   455→                              onClick={() => setActionDialog({ d, action: 'verify' })}
+   456→                            >
+   457→                              <Check className="h-3.5 w-3.5 mr-1" />
+   458→                              Verify
+   459→                            </Button>
+   460→                            <Button
+   461→                              size="sm"
+   462→                              variant="outline"
+   463→                              className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50"
+   464→                              onClick={() => setActionDialog({ d, action: 'reject' })}
+   465→                            >
+   466→                              <X className="h-3.5 w-3.5 mr-1" />
+   467→                              Reject
+   468→                            </Button>
+   469→                          </div>
+   470→                        </TableCell>
+   471→                      )}
+   472→                    </TableRow>
+   473→                  ))
+   474→                )}
+   475→              </TableBody>
+   476→            </Table>
+   477→          </div>
+   478→        </CardContent>
+   479→      </Card>
+   480→
+   481→      {/* Action Dialog */}
+   482→      <Dialog open={!!actionDialog} onOpenChange={(open) => !open && setActionDialog(null)}>
+   483→        <DialogContent>
+   484→          <DialogHeader>
+   485→            <DialogTitle>
+   486→              {actionDialog?.action === 'verify'
+   487→                ? 'Verify Deposit'
+   488→                : actionDialog?.action === 'reject'
+   489→                  ? 'Reject Deposit'
+   490→                  : 'Expire Deposit'}
+   491→            </DialogTitle>
+   492→            <DialogDescription>
+   493→              {actionDialog?.action === 'verify'
+   494→                ? `Verify ${actionDialog?.d.amount} TK deposit? Balance will be credited to the user.`
+   495→                : actionDialog?.action === 'reject'
+   496→                  ? `Reject ${actionDialog?.d.amount} TK deposit for ${actionDialog?.d.user.firstName}?`
+   497→                  : `Mark ${actionDialog?.d.amount} TK deposit as expired?`}
+   498→            </DialogDescription>
+   499→          </DialogHeader>
+   500→          {actionDialog && (
+   501→            <div className="space-y-3">
+   502→              <div className="grid grid-cols-2 gap-3 p-3 bg-muted/50 rounded-lg text-sm">
+   503→                <div>
+   504→                  <span className="text-muted-foreground">User</span>
+   505→                  <p className="font-semibold">
+   506→                    {actionDialog.d.user.firstName} {actionDialog.d.user.lastName || ''}
+   507→                  </p>
+   508→                </div>
+   509→                <div>
+   510→                  <span className="text-muted-foreground">Amount</span>
+   511→                  <p className="font-semibold">{actionDialog.d.amount} TK</p>
+   512→                </div>
+   513→                <div>
+   514→                  <span className="text-muted-foreground">Method</span>
+   515→                  <p className="font-semibold capitalize">{actionDialog.d.paymentMethod}</p>
+   516→                </div>
+   517→                <div>
+   518→                  <span className="text-muted-foreground">TrxID</span>
+   519→                  <p className="font-mono text-xs">{actionDialog.d.transactionId}</p>
+   520→                </div>
+   521→                <div>
+   522→                  <span className="text-muted-foreground">Sender Number</span>
+   523→                  <p className="font-mono">{actionDialog.d.senderNumber}</p>
+   524→                </div>
+   525→                <div>
+   526→                  <span className="text-muted-foreground">User Balance</span>
+   527→                  <p className="font-semibold">{actionDialog.d.user.balance.toFixed(1)} TK</p>
+   528→                </div>
+   529→              </div>
+   530→              {actionDialog.action === 'verify' && (
+   531→                <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+   532→                  <p className="text-xs text-emerald-700 font-medium">
+   533→                    After verification: User balance will become{' '}
+   534→                    <strong>{(actionDialog.d.user.balance + actionDialog.d.amount).toFixed(1)} TK</strong>
+   535→                  </p>
+   536→                </div>
+   537→              )}
+   538→              <div>
+   539→                <Label>Admin Note</Label>
+   540→                <Textarea
+   541→                  value={note}
+   542→                  onChange={(e) => setNote(e.target.value)}
+   543→                  placeholder={
+   544→                    actionDialog.action === 'verify'
+   545→                      ? 'Optional verification note'
+   546→                      : actionDialog.action === 'reject'
+   547→                        ? 'Reason for rejection'
+   548→                        : 'Reason for expiration'
+   549→                  }
+   550→                  rows={2}
+   551→                />
+   552→              </div>
+   553→            </div>
+   554→          )}
+   555→          <DialogFooter>
+   556→            <Button variant="outline" onClick={() => { setActionDialog(null); setNote('') }}>
+   557→              Cancel
+   558→            </Button>
+   559→            <Button
+   560→              variant={actionDialog?.action === 'verify' ? 'default' : 'destructive'}
+   561→              onClick={handleAction}
+   562→              disabled={actionLoading}
+   563→              className={actionDialog?.action === 'verify' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+   564→            >
+   565→              {actionLoading ? (
+   566→                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+   567→              ) : actionDialog?.action === 'verify' ? (
+   568→                <Check className="h-4 w-4 mr-2" />
+   569→              ) : (
+   570→                <X className="h-4 w-4 mr-2" />
+   571→              )}
+   572→              {actionLoading
+   573→                ? 'Processing...'
+   574→                : actionDialog?.action === 'verify'
+   575→                  ? 'Verify & Credit'
+   576→                  : actionDialog?.action === 'reject'
+   577→                    ? 'Reject'
+   578→                    : 'Expire'}
+   579→            </Button>
+   580→          </DialogFooter>
+   581→        </DialogContent>
+   582→      </Dialog>
+   583→
+   584→      {/* Settings Dialog */}
+   585→      <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
+   586→        <DialogContent className="sm:max-w-lg">
+   587→          <DialogHeader>
+   588→            <DialogTitle className="flex items-center gap-2">
+   589→              <Settings className="h-5 w-5 text-violet-600" />
+   590→              Deposit Settings
+   591→            </DialogTitle>
+   592→            <DialogDescription>
+   593→              Configure payment methods, limits, and auto-verification rules.
+   594→            </DialogDescription>
+   595→          </DialogHeader>
+   596→          <div className="space-y-5 pt-2">
+   597→            {/* Payment Numbers */}
+   598→            <div className="space-y-3">
+   599→              <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+   600→                Payment Numbers
+   601→              </p>
+   602→              <div className="space-y-3">
+   603→                <div className="flex items-center gap-3">
+   604→                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white shrink-0 text-xs font-bold" style={{ backgroundColor: '#E2136E' }}>
+   605→                    bK
+   606→                  </div>
+   607→                  <div className="flex-1">
+   608→                    <Label className="text-xs text-muted-foreground">bKash Number</Label>
+   609→                    <Input
+   610→                      placeholder="01XXXXXXXXX"
+   611→                      value={settings.bkashNumber}
+   612→                      onChange={(e) => setSettings({ ...settings, bkashNumber: e.target.value })}
+   613→                      className="mt-0.5 font-mono"
+   614→                    />
+   615→                  </div>
+   616→                </div>
+   617→                <div className="flex items-center gap-3">
+   618→                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white shrink-0 text-xs font-bold" style={{ backgroundColor: '#F6921E' }}>
+   619→                    Na
+   620→                  </div>
+   621→                  <div className="flex-1">
+   622→                    <Label className="text-xs text-muted-foreground">Nagad Number</Label>
+   623→                    <Input
+   624→                      placeholder="01XXXXXXXXX"
+   625→                      value={settings.nagadNumber}
+   626→                      onChange={(e) => setSettings({ ...settings, nagadNumber: e.target.value })}
+   627→                      className="mt-0.5 font-mono"
+   628→                    />
+   629→                  </div>
+   630→                </div>
+   631→                <div className="flex items-center gap-3">
+   632→                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white shrink-0 text-xs font-bold" style={{ backgroundColor: '#8C3494' }}>
+   633→                    RK
+   634→                  </div>
+   635→                  <div className="flex-1">
+   636→                    <Label className="text-xs text-muted-foreground">Rocket Number</Label>
+   637→                    <Input
+   638→                      placeholder="01XXXXXXXXX"
+   639→                      value={settings.rocketNumber}
+   640→                      onChange={(e) => setSettings({ ...settings, rocketNumber: e.target.value })}
+   641→                      className="mt-0.5 font-mono"
+   642→                    />
+   643→                  </div>
+   644→                </div>
+   645→              </div>
+   646→            </div>
+   647→
+   648→            {/* Amount Limits */}
+   649→            <div className="space-y-3">
+   650→              <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+   651→                Amount Limits
+   652→              </p>
+   653→              <div className="grid grid-cols-2 gap-3">
+   654→                <div>
+   655→                  <Label className="text-xs text-muted-foreground">Min Amount (TK)</Label>
+   656→                  <Input
+   657→                    type="number"
+   658→                    value={settings.minAmount}
+   659→                    onChange={(e) => setSettings({ ...settings, minAmount: e.target.value })}
+   660→                    className="mt-0.5"
+   661→                  />
+   662→                </div>
+   663→                <div>
+   664→                  <Label className="text-xs text-muted-foreground">Max Amount (TK)</Label>
+   665→                  <Input
+   666→                    type="number"
+   667→                    value={settings.maxAmount}
+   668→                    onChange={(e) => setSettings({ ...settings, maxAmount: e.target.value })}
+   669→                    className="mt-0.5"
+   670→                  />
+   671→                </div>
+   672→              </div>
+   673→            </div>
+   674→
+   675→            {/* Auto Verification */}
+   676→            <div className="space-y-3">
+   677→              <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+   678→                Auto Verification
+   679→              </p>
+   680→              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+   681→                <div>
+   682→                  <p className="text-sm font-medium">Enable Auto-Verify</p>
+   683→                  <p className="text-xs text-muted-foreground">
+   684→                    Deposits ≤500 TK are verified automatically
+   685→                  </p>
+   686→                </div>
+   687→                <Switch
+   688→                  checked={settings.autoVerify}
+   689→                  onCheckedChange={(checked) => setSettings({ ...settings, autoVerify: checked })}
+   690→                />
+   691→              </div>
+   692→              <div>
+   693→                <Label className="text-xs text-muted-foreground">Expiry Time (minutes)</Label>
+   694→                <div className="relative mt-0.5">
+   695→                  <Input
+   696→                    type="number"
+   697→                    value={settings.expireMinutes}
+   698→                    onChange={(e) => setSettings({ ...settings, expireMinutes: e.target.value })}
+   699→                  />
+   700→                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+   701→                    min
+   702→                  </span>
+   703→                </div>
+   704→                <p className="text-xs text-muted-foreground mt-1">
+   705→                  Pending deposits auto-expire after this time
+   706→                </p>
+   707→              </div>
+   708→            </div>
+   709→          </div>
+   710→          <DialogFooter>
+   711→            <Button variant="outline" onClick={() => setSettingsDialog(false)}>
+   712→              Cancel
+   713→            </Button>
+   714→            <Button
+   715→              onClick={saveSettings}
+   716→              disabled={savingSettings}
+   717→              className="bg-violet-600 hover:bg-violet-700 text-white"
+   718→            >
+   719→              {savingSettings ? (
+   720→                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+   721→              ) : (
+   722→                <Check className="h-4 w-4 mr-2" />
+   723→              )}
+   724→              {savingSettings ? 'Saving...' : 'Save Settings'}
+   725→            </Button>
+   726→          </DialogFooter>
+   727→        </DialogContent>
+   728→      </Dialog>
+   729→    </div>
+   730→  )
+   731→}

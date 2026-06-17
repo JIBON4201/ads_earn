@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const deposits = await db.deposit.findMany({
       where: { userId: user.id },
       orderBy: { requestedAt: 'desc' },
-      take: 20,
+      take: 30,
     })
 
     // Fetch payment config from settings
@@ -42,7 +42,8 @@ export async function GET(request: NextRequest) {
             'deposit_max_amount',
             'deposit_auto_verify',
             'deposit_expire_minutes',
-            'deposit_methods_enabled',
+            'deposit_verify_delay_seconds',
+            'deposit_enabled',
           ],
         },
       },
@@ -57,15 +58,15 @@ export async function GET(request: NextRequest) {
       {
         id: 'bkash',
         name: 'bKash',
-        number: config.deposit_bkash_number || '',
+        number: config.deposit_bkash_number || '017XXXXXXXX',
         color: '#E2136E',
-        icon: 'mobile',
+        icon: 'smartphone',
         enabled: true,
       },
       {
         id: 'nagad',
         name: 'Nagad',
-        number: config.deposit_nagad_number || '',
+        number: config.deposit_nagad_number || '018XXXXXXXX',
         color: '#F6921E',
         icon: 'send',
         enabled: true,
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
       {
         id: 'rocket',
         name: 'Rocket',
-        number: config.deposit_rocket_number || '',
+        number: config.deposit_rocket_number || '019XXXXXXXX',
         color: '#8C3494',
         icon: 'zap',
         enabled: true,
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
 
     // Count pending deposits
     const pendingCount = await db.deposit.count({
-      where: { userId: user.id, status: 'pending' },
+      where: { userId: user.id, status: { in: ['pending', 'verifying'] } },
     })
 
     return NextResponse.json({
@@ -91,8 +92,10 @@ export async function GET(request: NextRequest) {
       config: {
         minAmount: parseFloat(config.deposit_min_amount || '10'),
         maxAmount: parseFloat(config.deposit_max_amount || '50000'),
-        autoVerify: config.deposit_auto_verify === 'true',
+        autoVerify: config.deposit_auto_verify !== 'false',
         expireMinutes: parseInt(config.deposit_expire_minutes || '30'),
+        verifyDelaySeconds: parseInt(config.deposit_verify_delay_seconds || '8'),
+        enabled: config.deposit_enabled !== 'false',
       },
       pendingCount,
     })
@@ -102,7 +105,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: Submit a new deposit request
+// POST: Submit a new deposit request (all deposits go to automator)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -138,7 +141,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate TrxID format (alphanumeric, 8-20 chars)
+    // Validate TrxID format (alphanumeric, 6-20 chars)
     const cleanTrxId = transactionId.trim().toUpperCase()
     if (!/^[A-Z0-9]{6,20}$/.test(cleanTrxId)) {
       return NextResponse.json(
@@ -163,7 +166,7 @@ export async function POST(request: NextRequest) {
     const settings = await db.setting.findMany({
       where: {
         key: {
-          in: ['deposit_min_amount', 'deposit_max_amount', 'deposit_auto_verify', 'deposit_expire_minutes'],
+          in: ['deposit_min_amount', 'deposit_max_amount', 'deposit_enabled', 'deposit_expire_minutes', 'deposit_verify_delay_seconds'],
         },
       },
     })
@@ -175,8 +178,16 @@ export async function POST(request: NextRequest) {
 
     const minAmount = parseFloat(config.deposit_min_amount || '10')
     const maxAmount = parseFloat(config.deposit_max_amount || '50000')
-    const autoVerify = config.deposit_auto_verify === 'true'
+    const enabled = config.deposit_enabled !== 'false'
     const expireMinutes = parseInt(config.deposit_expire_minutes || '30')
+    const verifyDelay = parseInt(config.deposit_verify_delay_seconds || '8')
+
+    if (!enabled) {
+      return NextResponse.json(
+        { error: 'Deposits are temporarily disabled. Please try again later.' },
+        { status: 503 }
+      )
+    }
 
     if (parsedAmount < minAmount) {
       return NextResponse.json(
@@ -196,7 +207,7 @@ export async function POST(request: NextRequest) {
     const existingTrx = await db.deposit.findFirst({
       where: {
         transactionId: cleanTrxId,
-        status: { in: ['pending', 'auto_verified', 'verified'] },
+        status: { in: ['pending', 'verifying', 'auto_verified', 'verified'] },
       },
     })
 
@@ -209,7 +220,7 @@ export async function POST(request: NextRequest) {
 
     // Rate limit: max 5 pending deposits per user
     const pendingCount = await db.deposit.count({
-      where: { userId: user.id, status: 'pending' },
+      where: { userId: user.id, status: { in: ['pending', 'verifying'] } },
     })
 
     if (pendingCount >= 5) {
@@ -239,21 +250,8 @@ export async function POST(request: NextRequest) {
     // Calculate expiry time
     const expiresAt = new Date(Date.now() + expireMinutes * 60 * 1000)
 
-    // Determine initial status and verification method
-    let initialStatus = 'pending'
-    let verificationMethod = 'manual'
-
-    if (autoVerify) {
-      // Auto-verify: for small amounts, verify immediately
-      // For larger amounts, still require manual review
-      const autoVerifyThreshold = 500 // Auto-verify deposits <= 500 TK
-      if (parsedAmount <= autoVerifyThreshold) {
-        initialStatus = 'auto_verified'
-        verificationMethod = 'auto'
-      }
-    }
-
-    // Create deposit
+    // ALL deposits go to the automator as "pending"
+    // The background service will pick them up and auto-verify
     const deposit = await db.deposit.create({
       data: {
         userId: user.id,
@@ -261,37 +259,11 @@ export async function POST(request: NextRequest) {
         paymentMethod,
         senderNumber: cleanSenderNumber,
         transactionId: cleanTrxId,
-        status: initialStatus,
-        verificationMethod,
+        status: 'pending',
+        verificationMethod: 'auto',
         expiresAt,
       },
     })
-
-    // If auto-verified, credit the balance immediately
-    let newBalance = user.balance
-    if (initialStatus === 'auto_verified') {
-      newBalance = user.balance + parsedAmount
-      await db.botUser.update({
-        where: { id: user.id },
-        data: { balance: newBalance },
-      })
-
-      await db.transaction.create({
-        data: {
-          userId: user.id,
-          type: 'deposit',
-          amount: parsedAmount,
-          balanceAfter: newBalance,
-          description: `Auto-verified deposit via ${paymentMethod} (TrxID: ${cleanTrxId})`,
-          metadata: JSON.stringify({
-            depositId: deposit.id,
-            paymentMethod,
-            transactionId: cleanTrxId,
-            verificationMethod: 'auto',
-          }),
-        },
-      })
-    }
 
     return NextResponse.json({
       success: true,
@@ -300,15 +272,12 @@ export async function POST(request: NextRequest) {
         amount: parsedAmount,
         paymentMethod,
         transactionId: cleanTrxId,
-        status: initialStatus,
-        verificationMethod,
+        status: 'pending',
+        verificationMethod: 'auto',
         expiresAt: deposit.expiresAt,
-        newBalance,
+        estimatedVerifySeconds: verifyDelay,
       },
-      message:
-        initialStatus === 'auto_verified'
-          ? `Deposit of ${parsedAmount} TK auto-verified and credited!`
-          : `Deposit of ${parsedAmount} TK submitted. Waiting for verification.`,
+      message: `Deposit of ${parsedAmount} TK submitted. Auto-verification will begin in ~${verifyDelay} seconds.`,
     })
   } catch (error) {
     console.error('Deposit create error:', error)
