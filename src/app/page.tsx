@@ -32,6 +32,7 @@ import {
   Share2,
   User,
   Sparkles,
+  Landmark,
 } from 'lucide-react'
 
 // Admin components
@@ -44,6 +45,7 @@ import VipTiersPanel from '@/components/admin/VipTiersPanel'
 import SettingsPanel from '@/components/admin/SettingsPanel'
 import TransactionsPanel from '@/components/admin/TransactionsPanel'
 import DevicesPanel from '@/components/admin/DevicesPanel'
+import DepositsPanel from '@/components/admin/DepositsPanel'
 
 // User components
 import UserDashboard from '@/components/user/UserDashboard'
@@ -52,6 +54,7 @@ import UserWallet from '@/components/user/Wallet'
 import VipUpgrade from '@/components/user/VipUpgrade'
 import ReferralSystem from '@/components/user/ReferralSystem'
 import UserProfile from '@/components/user/UserProfile'
+import DepositComponent from '@/components/user/Deposit'
 
 type AppMode = 'admin' | 'user'
 
@@ -68,6 +71,7 @@ interface DemoUser {
 interface TabBadgeCount {
   fraudAlerts: number
   pendingWithdrawals: number
+  pendingDeposits: number
 }
 
 const DEMO_USERS: { telegramId: number; label: string; vip: string }[] = [
@@ -82,7 +86,7 @@ export default function Home() {
   const [mode, setMode] = useState<AppMode>('user')
   const [selectedTelegramId, setSelectedTelegramId] = useState<number>(100001)
   const [userId, setUserId] = useState<string>('')
-  const [badgeCounts, setBadgeCounts] = useState<TabBadgeCount>({ fraudAlerts: 0, pendingWithdrawals: 0 })
+  const [badgeCounts, setBadgeCounts] = useState<TabBadgeCount>({ fraudAlerts: 0, pendingWithdrawals: 0, pendingDeposits: 0 })
   const [botOnline, setBotOnline] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [userTab, setUserTab] = useState('dashboard')
@@ -101,10 +105,12 @@ export default function Home() {
     Promise.all([
       fetch('/api/admin/fraud?resolved=false').then((r) => r.json()),
       fetch('/api/admin').then((r) => r.json()),
-    ]).then(([fraudData, statsData]) => {
+      fetch('/api/admin/deposits?status=pending').then((r) => r.json()),
+    ]).then(([fraudData, statsData, depositsData]) => {
       setBadgeCounts({
         fraudAlerts: fraudData.alerts?.length || 0,
         pendingWithdrawals: statsData.pendingWithdrawals || 0,
+        pendingDeposits: depositsData.stats?.pending || 0,
       })
     }).catch(() => {})
   }, [])
@@ -134,12 +140,20 @@ export default function Home() {
     setUserTab(tab)
   }
 
+  // Listen for deposit navigation from Wallet component
+  useEffect(() => {
+    const handler = () => setUserTab('deposit')
+    window.addEventListener('navigate-to-deposit', handler)
+    return () => window.removeEventListener('navigate-to-deposit', handler)
+  }, [])
+
   const adminTabs = [
     { value: 'overview', label: 'Overview', icon: LayoutDashboard },
     { value: 'users', label: 'Users', icon: Users },
     { value: 'ads', label: 'Ads', icon: Megaphone },
     { value: 'transactions', label: 'Transactions', icon: ArrowLeftRight },
     { value: 'withdrawals', label: 'Withdrawals', icon: Banknote, badge: badgeCounts.pendingWithdrawals },
+    { value: 'deposits', label: 'Deposits', icon: Landmark, badge: badgeCounts.pendingDeposits },
     { value: 'fraud', label: 'Fraud', icon: ShieldAlert, badge: badgeCounts.fraudAlerts },
     { value: 'devices', label: 'Devices', icon: Fingerprint },
     { value: 'vip', label: 'VIP Tiers', icon: Crown },
@@ -150,6 +164,7 @@ export default function Home() {
     { value: 'dashboard', label: 'Home', icon: LayoutDashboard },
     { value: 'watch', label: 'Watch Ads', icon: Eye },
     { value: 'wallet', label: 'Wallet', icon: Wallet },
+    { value: 'deposit', label: 'Deposit', icon: Landmark },
     { value: 'vip', label: 'VIP', icon: Crown },
     { value: 'referral', label: 'Referrals', icon: Share2 },
     { value: 'profile', label: 'Profile', icon: User },
@@ -317,6 +332,7 @@ export default function Home() {
                 <TabsContent value="ads"><AdsManager /></TabsContent>
                 <TabsContent value="transactions"><TransactionsPanel /></TabsContent>
                 <TabsContent value="withdrawals"><WithdrawalsPanel /></TabsContent>
+                <TabsContent value="deposits"><DepositsPanel /></TabsContent>
                 <TabsContent value="fraud"><FraudAlerts /></TabsContent>
                 <TabsContent value="devices"><DevicesPanel /></TabsContent>
                 <TabsContent value="vip"><VipTiersPanel /></TabsContent>
@@ -364,6 +380,11 @@ export default function Home() {
                 {userTab === 'wallet' && userId && (
                   <motion.div key="u-wallet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                     <UserWallet telegramId={selectedTelegramId} userId={userId} />
+                  </motion.div>
+                )}
+                {userTab === 'deposit' && userId && (
+                  <motion.div key="u-deposit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                    <DepositComponent telegramId={selectedTelegramId} userId={userId} />
                   </motion.div>
                 )}
                 {userTab === 'vip' && userId && (

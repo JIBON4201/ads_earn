@@ -33,6 +33,7 @@ model BotUser {
 
   adWatches      UserAdWatch[]
   withdrawals    Withdrawal[]
+  deposits       Deposit[]
   transactions   Transaction[]
   vipPayments    VipPayment[]
   rateLimits     RateLimit[]
@@ -177,4 +178,23 @@ model ActivityLog {
   details   String?  // JSON
   ipAddress String?
   createdAt DateTime @default(now())
+}
+
+// Deposit requests (automated payment verification)
+model Deposit {
+  id              String   @id @default(cuid())
+  userId          String
+  user            BotUser  @relation(fields: [userId], references: [id])
+  amount          Float
+  paymentMethod   String   // bkash, nagad, rocket
+  senderNumber    String   // user's payment number they sent from
+  transactionId   String   // TrxID from payment app
+  status          String   @default("pending") // pending, auto_verified, verified, rejected, expired
+  verificationMethod String @default("manual") // manual, auto
+  adminNote       String?
+  screenshotUrl   String?  // payment screenshot URL (optional)
+  requestedAt     DateTime @default(now())
+  verifiedAt      DateTime?
+  processedBy     String?
+  expiresAt       DateTime? // auto-expire unverified deposits
 }

@@ -38,6 +38,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Landmark,
 } from 'lucide-react'
 
 interface Transaction {
@@ -80,6 +81,7 @@ const TYPE_STYLES: Record<string, { color: string; bg: string; icon: typeof Arro
   ad_reward: { color: 'text-emerald-600', bg: 'bg-emerald-100', icon: ArrowDownCircle },
   referral_bonus: { color: 'text-sky-600', bg: 'bg-sky-100', icon: Gift },
   withdrawal: { color: 'text-red-600', bg: 'bg-red-100', icon: ArrowUpCircle },
+  deposit: { color: 'text-violet-600', bg: 'bg-violet-100', icon: Landmark },
   vip_purchase: { color: 'text-purple-600', bg: 'bg-purple-100', icon: Crown },
   admin_adjust: { color: 'text-amber-600', bg: 'bg-amber-100', icon: CreditCard },
 }
@@ -195,13 +197,14 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
             </p>
           </div>
           <CardContent className="p-4">
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 text-sm font-semibold">
-                  <ArrowUpCircle className="h-4 w-4 mr-2" />
-                  Withdraw Funds
-                </Button>
-              </DialogTrigger>
+            <div className="grid grid-cols-2 gap-2">
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 text-sm font-semibold">
+                    <ArrowUpCircle className="h-4 w-4 mr-1.5" />
+                    Withdraw
+                  </Button>
+                </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
@@ -276,6 +279,17 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
                 </div>
               </DialogContent>
             </Dialog>
+              <Button
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white h-11 text-sm font-semibold"
+                onClick={() => {
+                  const event = new CustomEvent('navigate-to-deposit')
+                  window.dispatchEvent(event)
+                }}
+              >
+                <Landmark className="h-4 w-4 mr-1.5" />
+                Deposit
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </motion.div>
