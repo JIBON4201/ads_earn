@@ -42,7 +42,7 @@ interface TabBadgeCount {
 }
 
 interface AdminPanelProps {
-  onBack: () => void
+  onBack?: () => void
 }
 
 export default function AdminPanel({ onBack }: AdminPanelProps) {
@@ -136,7 +136,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-gray-400 hover:text-white hover:bg-white/10"
-                onClick={onBack}
+                onClick={() => window.location.href = '/'}
                 aria-label="Go back"
               >
                 <ArrowLeft className="h-4.5 w-4.5" />

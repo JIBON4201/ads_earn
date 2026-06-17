@@ -19,7 +19,6 @@ import {
   Share2,
   User,
   Bot,
-  ArrowLeft,
   UserCircle,
 } from 'lucide-react'
 
@@ -32,7 +31,7 @@ import UserProfile from '@/components/user/UserProfile'
 import DepositComponent from '@/components/user/Deposit'
 
 interface UserAppProps {
-  onBack: () => void
+  onBack?: () => void
 }
 
 const DEMO_USERS: { telegramId: number; label: string; vip: string }[] = [
@@ -87,13 +86,6 @@ export default function UserApp({ onBack }: UserAppProps) {
           <div className="flex items-center justify-between h-14">
             {/* Left: Back button + Logo */}
             <div className="flex items-center gap-2.5">
-              <button
-                onClick={onBack}
-                className="flex items-center justify-center h-8 w-8 rounded-lg border hover:bg-gray-50 transition-colors"
-                aria-label="Go back"
-              >
-                <ArrowLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
               <div className="flex items-center gap-2.5">
                 <div className="h-8 w-8 rounded-lg bg-emerald-600 flex items-center justify-center">
                   <Bot className="h-4.5 w-4.5 text-white" />

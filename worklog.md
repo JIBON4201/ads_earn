@@ -359,3 +359,23 @@ Stage Summary:
 - Each app has its own header, navigation, and footer
 - Back button in each app returns to the landing page
 - All features verified working via Agent Browser
+
+---
+Task ID: hide-admin-panel
+Agent: Main
+Task: Hide Admin Panel from users — only admin can access it
+
+Work Log:
+- Rewrote page.tsx to use useSearchParams: default `/` shows User App directly, `?admin=true` shows Admin Panel
+- Removed landing page entirely — no admin card visible to any user
+- Made UserApp's onBack prop optional and removed the "Go back" button from the user-facing header
+- Made AdminPanel's onBack prop optional; back button now navigates to `/` (removes admin param)
+- Removed unused ArrowLeft import from UserApp
+- Verified: `/` → User App only, `/?admin=true` → Admin Panel, `/?admin=false` → User App
+- Admin "Go back" button returns to `/` (user app)
+- Lint passes clean
+
+Stage Summary:
+- Regular users see ONLY the User App at `/` — no trace of admin
+- Admin accesses panel via secret URL: `/?admin=true`
+- No landing page, no admin toggle, no admin card visible anywhere to users
