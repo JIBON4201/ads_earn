@@ -315,3 +315,27 @@ Stage Summary:
 - CORS issue resolved: cross-origin requests from `*.space-z.ai` now return 404 (file not found) instead of 403 (blocked)
 - Dev server stays alive using setsid double-fork approach
 - Preview panel should now work correctly
+
+---
+Task ID: fix-app-not-working
+Agent: Main
+Task: Fix "this app do not work properly" - investigate and repair broken functionality
+
+Work Log:
+- Diagnosed root cause: corrupted `.next` Turbopack cache from repeated server restarts
+- API routes (user, admin) were stuck in "Compiling..." state indefinitely
+- Simple API (no Prisma) worked fine; Prisma-dependent routes hung
+- Cleared `.next` cache directory with `rm -rf .next`
+- Restarted dev server — all API routes returned to normal (200 responses, <30ms)
+- Verified all 14+ API routes work correctly
+- End-to-end Agent Browser testing:
+  - User mode: Home, Watch Ads (3 ads), Wallet (balance + withdraw/deposit), Deposit (automated), VIP (5 tiers), Referrals, Profile — all working
+  - Admin mode: Overview, Users, Ads, Transactions, Withdrawals, Deposits, Fraud (3 alerts), Devices, VIP Tiers, Settings — all working
+  - Full ad-watching flow: Click Watch → 13s countdown → "Ad Complete!" → Claim +1.3 TK → Toast "Earned 1.3 TK (VIP +30% boost)! New balance: 430.7 TK"
+- Cleaned up test API route at /api/test
+
+Stage Summary:
+- Root cause: corrupted Turbopack cache (`.next/` directory)
+- Fix: `rm -rf .next` + server restart
+- All user and admin features verified working end-to-end
+- Ad watch → countdown → claim reward flow confirmed functional
