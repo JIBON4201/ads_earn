@@ -1,10 +1,14 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { getAuthPayload } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const telegramId = searchParams.get('telegramId')
+    // Support both JWT (Telegram) and query param (dev mode)
+    const auth = await getAuthPayload(request)
+    const url = new URL(request.url)
+    const searchParams = url.searchParams
+    const telegramId = auth?.telegramId?.toString() || searchParams.get('telegramId')
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const type = searchParams.get('type') || ''

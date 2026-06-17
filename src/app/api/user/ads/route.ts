@@ -1,10 +1,12 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { getAuthPayload } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const telegramId = searchParams.get('telegramId')
+    // Support both JWT (Telegram) and query param (dev mode)
+    const auth = await getAuthPayload(request)
+    const telegramId = auth?.telegramId?.toString() || new URL(request.url).searchParams.get('telegramId')
 
     if (!telegramId) {
       return NextResponse.json({ error: 'telegramId is required' }, { status: 400 })
@@ -101,10 +103,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { userId, adId, telegramId } = body
+    const { userId, adId, telegramId: bodyTelegramId } = body
+
+    // Support JWT: if valid token, verify telegramId matches
+    const auth = await getAuthPayload(request)
+    const telegramId = auth?.telegramId?.toString() || bodyTelegramId
 
     if (!userId || !adId || !telegramId) {
       return NextResponse.json({ error: 'userId, adId, and telegramId are required' }, { status: 400 })
+    }
+
+    // If JWT present, verify the telegramId matches for security
+    if (auth && auth.telegramId !== parseInt(telegramId)) {
+      return NextResponse.json({ error: 'Unauthorized: telegramId mismatch' }, { status: 401 })
     }
 
     // Fetch user and ad

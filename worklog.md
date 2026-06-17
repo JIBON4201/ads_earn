@@ -437,3 +437,51 @@ Stage Summary:
 - VIP users: unlimited withdrawals, tier-specific minimums
 - All 4 user-facing tabs updated: Watch Ads, Wallet, VIP, and Admin VIP Tiers
 - Verified via Agent Browser: all values display correctly, no errors in dev log
+
+---
+Task ID: telegram-webapp-auth
+Agent: Main
+Task: Integrate Telegram WebApp authentication with HMAC verification, JWT, auto signup/login
+
+Work Log:
+- Installed `jose` (v6.2.3) for JWT signing/verification (edge-compatible, no Node.js crypto dependency)
+- Created `/src/lib/auth.ts` — comprehensive auth utility:
+  - `verifyTelegramInitData()`: Full HMAC-SHA256 verification per Telegram spec (sort params, compute hash, compare hex, check auth_date ≤ 5min)
+  - `signJWT()`: Signs HS256 JWT with 7-day expiry using jose
+  - `verifyJWT()`: Verifies and decodes JWT tokens
+  - `getAuthPayload()`: Extracts JWT from Authorization header or ?token= query param
+  - `getBotToken()`: Reads bot_token from DB settings
+- Created `/src/app/api/auth/telegram/route.ts` — Telegram auth endpoint (POST):
+  - Receives `initData` string from client
+  - Reads bot_token from DB settings
+  - HMAC-SHA256 verification using Web Crypto API
+  - 5-minute auth_date expiry check
+  - Auto-signup: creates new BotUser with referral code, VIP level 0
+  - Auto-login: returns existing user data
+  - Profile sync: updates firstName/lastName/username from Telegram on each login
+  - Referral tracking: parses `start_param` from initData, applies referral bonus to both referrer and referee
+  - Returns JWT + user object (id, telegramId, name, vip, balance, referralCode, isNewUser)
+- Updated `/src/components/user/UserApp.tsx` — dual-mode auth:
+  - Synchronous Telegram detection: `const isTelegram = !!window.Telegram?.WebApp`
+  - Loading screen with ShieldCheck icon + "Verifying your account..." animation
+  - Error screen with AlertCircle icon + "Authentication Failed" message
+  - Fetch interceptor: monkey-patches `window.fetch` to auto-attach `Authorization: Bearer <token>` header for ALL subsequent API calls
+  - Dev mode (no Telegram): demo user selector preserved, zero behavioral changes
+  - Telegram mode: shows user's name + @username + VIP badge in header (replaces demo selector)
+  - Lint-compliant: no synchronous setState in effects
+- Updated 5 user API routes with dual auth support:
+  - `/api/user/route.ts` GET: `auth?.telegramId || searchParams.get('telegramId')`
+  - `/api/user/ads/route.ts` GET+POST: JWT for GET, JWT mismatch check for POST
+  - `/api/user/wallet/route.ts` GET: JWT-aware telegramId extraction
+  - `/api/user/vip/route.ts` GET: JWT-aware telegramId extraction
+  - `/api/user/referral/route.ts` GET: JWT-aware telegramId extraction
+  - `/api/user/deposit/route.ts` GET: JWT-aware telegramId extraction
+- Design principle: JWT is OPTIONAL — routes work with either Authorization header (Telegram) or ?telegramId=X (dev mode)
+- Zero changes to child components (WatchAds, Wallet, VIP, etc.) — all auth is transparent via fetch interceptor
+
+Stage Summary:
+- Full Telegram WebApp auth: initData → HMAC verify → auto signup/login → JWT → dashboard
+- JWT tokens: HS256, 7-day expiry, stored in sessionStorage, auto-attached via fetch interceptor
+- Referral tracking: start_param from Telegram referral links auto-applied on signup
+- Zero breakage: dev mode works identically, all existing features untouched
+- All routes return 200 in dev mode, auth endpoint validates correctly (400/401/500 for bad input)

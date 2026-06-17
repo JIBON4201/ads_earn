@@ -1,10 +1,12 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { getAuthPayload } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const telegramId = searchParams.get('telegramId')
+    // Support both JWT (Telegram) and query param (dev mode)
+    const auth = await getAuthPayload(request)
+    const telegramId = auth?.telegramId?.toString() || new URL(request.url).searchParams.get('telegramId')
 
     if (!telegramId) {
       return NextResponse.json({ error: 'telegramId is required' }, { status: 400 })
