@@ -1,0 +1,879 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState, useCallback, useRef } from 'react'
+     4→import { motion, AnimatePresence } from 'framer-motion'
+     5→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+     6→import { Button } from '@/components/ui/button'
+     7→import { Badge } from '@/components/ui/badge'
+     8→import { Input } from '@/components/ui/input'
+     9→import { Label } from '@/components/ui/label'
+    10→import { Skeleton } from '@/components/ui/skeleton'
+    11→import { Separator } from '@/components/ui/separator'
+    12→import { ScrollArea } from '@/components/ui/scroll-area'
+    13→import { Progress } from '@/components/ui/progress'
+    14→import { toast } from 'sonner'
+    15→import {
+    16→  ArrowDownCircle,
+    17→  Copy,
+    18→  CheckCircle2,
+    19→  Clock,
+    20→  XCircle,
+    21→  Loader2,
+    22→  Smartphone,
+    23→  Send,
+    24→  Zap,
+    25→  ShieldCheck,
+    26→  AlertTriangle,
+    27→  Info,
+    28→  RefreshCw,
+    29→  Timer,
+    30→  CheckCheck,
+    31→  CircleAlert,
+    32→  ArrowRight,
+    33→  Landmark,
+    34→  CreditCard,
+    35→  SmartphoneNfc,
+    36→} from 'lucide-react'
+    37→
+    38→interface Deposit {
+    39→  id: string
+    40→  amount: number
+    41→  paymentMethod: string
+    42→  senderNumber: string
+    43→  transactionId: string
+    44→  status: string
+    45→  verificationMethod: string
+    46→  adminNote: string | null
+    47→  requestedAt: string
+    48→  verifiedAt: string | null
+    49→  expiresAt: string | null
+    50→  verificationAttempts?: number
+    51→}
+    52→
+    53→interface PaymentMethod {
+    54→  id: string
+    55→  name: string
+    56→  number: string
+    57→  color: string
+    58→  icon: string
+    59→  enabled: boolean
+    60→}
+    61→
+    62→interface DepositConfig {
+    63→  minAmount: number
+    64→  maxAmount: number
+    65→  autoVerify: boolean
+    66→  expireMinutes: number
+    67→  verifyDelaySeconds: number
+    68→  enabled: boolean
+    69→}
+    70→
+    71→interface DepositProgress {
+    72→  isVerifying: boolean
+    73→  isComplete: boolean
+    74→  isFailed: boolean
+    75→  timeToVerify: number
+    76→  expiresIn: number | null
+    77→}
+    78→
+    79→interface AutomationLog {
+    80→  action: string
+    81→  status: string
+    82→  message: string
+    83→  createdAt: string
+    84→}
+    85→
+    86→const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000, 5000]
+    87→
+    88→const METHOD_ICONS: Record<string, React.ReactNode> = {
+    89→  smartphone: <Smartphone className="h-5 w-5" />,
+    90→  send: <Send className="h-5 w-5" />,
+    91→  zap: <Zap className="h-5 w-5" />,
+    92→}
+    93→
+    94→const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode; desc: string }> = {
+    95→  pending: {
+    96→    label: 'Queued',
+    97→    color: 'bg-amber-100 text-amber-700 border-amber-200',
+    98→    icon: <Clock className="h-4 w-4" />,
+    99→    desc: 'Waiting in queue for auto-verification',
+   100→  },
+   101→  verifying: {
+   102→    label: 'Verifying',
+   103→    color: 'bg-blue-100 text-blue-700 border-blue-200',
+   104→    icon: <Loader2 className="h-4 w-4 animate-spin" />,
+   105→    desc: 'Payment is being verified automatically',
+   106→  },
+   107→  auto_verified: {
+   108→    label: 'Auto-Verified',
+   109→    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+   110→    icon: <ShieldCheck className="h-4 w-4" />,
+   111→    desc: 'Deposit verified and credited automatically',
+   112→  },
+   113→  verified: {
+   114→    label: 'Verified',
+   115→    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+   116→    icon: <CheckCircle2 className="h-4 w-4" />,
+   117→    desc: 'Deposit verified and credited',
+   118→  },
+   119→  rejected: {
+   120→    label: 'Rejected',
+   121→    color: 'bg-red-100 text-red-700 border-red-200',
+   122→    icon: <XCircle className="h-4 w-4" />,
+   123→    desc: 'Deposit was rejected',
+   124→  },
+   125→  expired: {
+   126→    label: 'Expired',
+   127→    color: 'bg-gray-100 text-gray-600 border-gray-200',
+   128→    icon: <Timer className="h-4 w-4" />,
+   129→    desc: 'Deposit expired — verification timeout',
+   130→  },
+   131→  failed: {
+   132→    label: 'Failed',
+   133→    color: 'bg-red-100 text-red-700 border-red-200',
+   134→    icon: <CircleAlert className="h-4 w-4" />,
+   135→    desc: 'Verification failed after multiple attempts',
+   136→  },
+   137→}
+   138→
+   139→export default function DepositComponent({ telegramId, userId }: { telegramId: number; userId: string }) {
+   140→  const [loading, setLoading] = useState(true)
+   141→  const [submitting, setSubmitting] = useState(false)
+   142→  const [step, setStep] = useState<1 | 2 | 3 | 'tracking'>('tracking')
+   143→  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
+   144→  const [config, setConfig] = useState<DepositConfig | null>(null)
+   145→  const [deposits, setDeposits] = useState<Deposit[]>([])
+   146→  const [selectedMethod, setSelectedMethod] = useState<string>('')
+   147→  const [amount, setAmount] = useState('')
+   148→  const [senderNumber, setSenderNumber] = useState('')
+   149→  const [transactionId, setTransactionId] = useState('')
+   150→  const [copiedField, setCopiedField] = useState<string | null>(null)
+   151→  const [activeDeposit, setActiveDeposit] = useState<Deposit | null>(null)
+   152→  const [depositProgress, setDepositProgress] = useState<DepositProgress | null>(null)
+   153→  const [automationLogs, setAutomationLogs] = useState<AutomationLog[]>([])
+   154→  const [userBalance, setUserBalance] = useState<number | null>(null)
+   155→  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+   156→
+   157→  const fetchData = useCallback(async () => {
+   158→    try {
+   159→      const res = await fetch(`/api/user/deposit?telegramId=${telegramId}`)
+   160→      const data = await res.json()
+   161→      if (data.error) { toast.error(data.error); return }
+   162→      setPaymentMethods(data.paymentMethods || [])
+   163→      setConfig(data.config || null)
+   164→      setDeposits(data.deposits || [])
+   165→
+   166→      // Check if there's an active deposit being processed
+   167→      const activeDep = (data.deposits || []).find((d: Deposit) =>
+   168→        ['pending', 'verifying'].includes(d.status)
+   169→      )
+   170→      if (activeDep) {
+   171→        setActiveDeposit(activeDep)
+   172→        setStep('tracking')
+   173→      }
+   174→    } catch {
+   175→      toast.error('Failed to load deposit data')
+   176→    } finally {
+   177→      setLoading(false)
+   178→    }
+   179→  }, [telegramId])
+   180→
+   181→  useEffect(() => {
+   182→    fetchData()
+   183→  }, [fetchData])
+   184→
+   185→  // Poll deposit status when tracking
+   186→  useEffect(() => {
+   187→    if (!activeDeposit) {
+   188→      if (pollIntervalRef.current) {
+   189→        clearInterval(pollIntervalRef.current)
+   190→        pollIntervalRef.current = null
+   191→      }
+   192→      return
+   193→    }
+   194→
+   195→    const pollStatus = async () => {
+   196→      try {
+   197→        const res = await fetch(`/api/user/deposit/status?depositId=${activeDeposit.id}`)
+   198→        const data = await res.json()
+   199→        if (data.error) return
+   200→
+   201→        setDepositProgress(data.progress)
+   202→        setAutomationLogs(data.logs || [])
+   203→        setUserBalance(data.userBalance)
+   204→
+   205→        // Update deposit status
+   206→        setActiveDeposit((prev) => {
+   207→          if (!prev) return null
+   208→          return { ...prev, ...data.deposit }
+   209→        })
+   210→
+   211→        // If complete or failed, stop polling and refresh
+   212→        if (data.progress.isComplete) {
+   213→          if (pollIntervalRef.current) {
+   214→            clearInterval(pollIntervalRef.current)
+   215→            pollIntervalRef.current = null
+   216→          }
+   217→          toast.success(`Deposit of ${data.deposit.amount} TK credited to your balance!`)
+   218→          fetchData()
+   219→          // Clear active after 3 seconds
+   220→          setTimeout(() => {
+   221→            setActiveDeposit(null)
+   222→            setDepositProgress(null)
+   223→            setStep('tracking')
+   224→          }, 3000)
+   225→        } else if (data.progress.isFailed) {
+   226→          if (pollIntervalRef.current) {
+   227→            clearInterval(pollIntervalRef.current)
+   228→            pollIntervalRef.current = null
+   229→          }
+   230→          toast.error(`Deposit failed: ${data.deposit.adminNote || 'Verification failed'}`)
+   231→          fetchData()
+   232→          setTimeout(() => {
+   233→            setActiveDeposit(null)
+   234→            setDepositProgress(null)
+   235→            setStep('tracking')
+   236→          }, 5000)
+   237→        }
+   238→      } catch { /* ignore poll errors */ }
+   239→    }
+   240→
+   241→    // Poll immediately
+   242→    pollStatus()
+   243→
+   244→    // Then every 2 seconds
+   245→    pollIntervalRef.current = setInterval(pollStatus, 2000)
+   246→
+   247→    return () => {
+   248→      if (pollIntervalRef.current) {
+   249→        clearInterval(pollIntervalRef.current)
+   250→        pollIntervalRef.current = null
+   251→      }
+   252→    }
+   253→  }, [activeDeposit?.id, fetchData])
+   254→
+   255→  const copyToClipboard = (text: string, field: string) => {
+   256→    navigator.clipboard.writeText(text)
+   257→    setCopiedField(field)
+   258→    setTimeout(() => setCopiedField(null), 2000)
+   259→  }
+   260→
+   261→  const handleSubmit = async () => {
+   262→    if (!selectedMethod || !amount || !senderNumber || !transactionId) {
+   263→      toast.error('Please fill in all fields')
+   264→      return
+   265→    }
+   266→
+   267→    setSubmitting(true)
+   268→    try {
+   269→      const res = await fetch('/api/user/deposit', {
+   270→        method: 'POST',
+   271→        headers: { 'Content-Type': 'application/json' },
+   272→        body: JSON.stringify({
+   273→          userId,
+   274→          amount: parseFloat(amount),
+   275→          paymentMethod: selectedMethod,
+   276→          senderNumber,
+   277→          transactionId,
+   278→        }),
+   279→      })
+   280→      const data = await res.json()
+   281→
+   282→      if (data.error) {
+   283→        toast.error(data.error)
+   284→        setSubmitting(false)
+   285→        return
+   286→      }
+   287→
+   288→      toast.success(data.message)
+   289→      setActiveDeposit(data.deposit)
+   290→      setDepositProgress({
+   291→        isVerifying: false,
+   292→        isComplete: false,
+   293→        isFailed: false,
+   294→        timeToVerify: data.deposit.estimatedVerifySeconds || 8,
+   295→        expiresIn: config?.expireMinutes ? config.expireMinutes * 60 : 1800,
+   296→      })
+   297→      setStep('tracking')
+   298→      setAmount('')
+   299→      setSenderNumber('')
+   300→      setTransactionId('')
+   301→      setSubmitting(false)
+   302→    } catch {
+   303→      toast.error('Failed to submit deposit')
+   304→      setSubmitting(false)
+   305→    }
+   306→  }
+   307→
+   308→  const selectedMethodData = paymentMethods.find((m) => m.id === selectedMethod)
+   309→
+   310→  const formatTime = (seconds: number) => {
+   311→    if (seconds <= 0) return '0s'
+   312→    if (seconds < 60) return `${Math.ceil(seconds)}s`
+   313→    const m = Math.floor(seconds / 60)
+   314→    const s = Math.ceil(seconds % 60)
+   315→    return `${m}m ${s}s`
+   316→  }
+   317→
+   318→  // ==================== RENDER ====================
+   319→
+   320→  if (loading) {
+   321→    return (
+   322→      <div className="space-y-4">
+   323→        <Skeleton className="h-40 w-full rounded-xl" />
+   324→        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+   325→          {[1, 2, 3].map((i) => (
+   326→            <Skeleton key={i} className="h-32 rounded-xl" />
+   327→          ))}
+   328→        </div>
+   329→        <Skeleton className="h-64 w-full rounded-xl" />
+   330→      </div>
+   331→    )
+   332→  }
+   333→
+   334→  if (!config?.enabled) {
+   335→    return (
+   336→      <Card className="border-amber-200 bg-amber-50">
+   337→        <CardContent className="py-12 text-center">
+   338→          <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-3" />
+   339→          <h3 className="text-lg font-semibold text-amber-800">Deposits Temporarily Disabled</h3>
+   340→          <p className="text-sm text-amber-600 mt-1">The deposit system is currently under maintenance. Please try again later.</p>
+   341→        </CardContent>
+   342→      </Card>
+   343→    )
+   344→  }
+   345→
+   346→  return (
+   347→    <div className="space-y-6">
+   348→      {/* Automation Banner */}
+   349→      <motion.div
+   350→        initial={{ opacity: 0, y: -10 }}
+   351→        animate={{ opacity: 1, y: 0 }}
+   352→        className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl p-5 text-white"
+   353→      >
+   354→        <div className="flex items-center justify-between">
+   355→          <div className="flex items-center gap-3">
+   356→            <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
+   357→              <ShieldCheck className="h-5 w-5" />
+   358→            </div>
+   359→            <div>
+   360→              <h2 className="text-base font-bold">Fully Automated Deposits</h2>
+   361→              <p className="text-sm text-emerald-100">
+   362→                All deposits are verified automatically in ~{config.verifyDelaySeconds}s. No waiting for admin approval.
+   363→              </p>
+   364→            </div>
+   365→          </div>
+   366→          <div className="hidden sm:flex items-center gap-2 bg-white/10 rounded-lg px-3 py-1.5">
+   367→            <div className="h-2 w-2 rounded-full bg-emerald-300 animate-pulse" />
+   368→            <span className="text-xs font-medium">Auto-Verify Active</span>
+   369→          </div>
+   370→        </div>
+   371→      </motion.div>
+   372→
+   373→      {/* Active Deposit Tracking */}
+   374→      <AnimatePresence>
+   375→        {activeDeposit && step === 'tracking' && (
+   376→          <motion.div
+   377→            key="tracking"
+   378→            initial={{ opacity: 0, scale: 0.98 }}
+   379→            animate={{ opacity: 1, scale: 1 }}
+   380→            exit={{ opacity: 0, scale: 0.98 }}
+   381→          >
+   382→            <Card className="border-2 border-emerald-200 overflow-hidden">
+   383→              <div className={`h-1.5 ${
+   384→                depositProgress?.isComplete
+   385→                  ? 'bg-emerald-500'
+   386→                  : depositProgress?.isFailed
+   387→                  ? 'bg-red-500'
+   388→                  : 'bg-gradient-to-r from-amber-400 via-blue-400 to-emerald-400 animate-gradient-x'
+   389→              }`} style={{ backgroundSize: '200% 100%' }} />
+   390→              <CardContent className="p-6">
+   391→                {/* Status Header */}
+   392→                <div className="flex items-center justify-between mb-4">
+   393→                  <div className="flex items-center gap-3">
+   394→                    {STATUS_CONFIG[activeDeposit.status] && (
+   395→                      <div className={`h-10 w-10 rounded-full flex items-center justify-center border ${STATUS_CONFIG[activeDeposit.status].color}`}>
+   396→                        {STATUS_CONFIG[activeDeposit.status].icon}
+   397→                      </div>
+   398→                    )}
+   399→                    <div>
+   400→                      <h3 className="font-bold text-lg">
+   401→                        {activeDeposit.amount} TK
+   402→                      </h3>
+   403→                      <p className="text-sm text-muted-foreground">
+   404→                        {STATUS_CONFIG[activeDeposit.status]?.desc}
+   405→                      </p>
+   406→                    </div>
+   407→                  </div>
+   408→                  <Badge className={`text-xs font-semibold ${STATUS_CONFIG[activeDeposit.status]?.color}`}>
+   409→                    {STATUS_CONFIG[activeDeposit.status]?.label}
+   410→                  </Badge>
+   411→                </div>
+   412→
+   413→                {/* Progress Section */}
+   414→                {(depositProgress && !depositProgress.isComplete && !depositProgress.isFailed) && (
+   415→                  <div className="space-y-3 mb-4">
+   416→                    {/* Countdown to verification */}
+   417→                    {!depositProgress.isVerifying && depositProgress.timeToVerify > 0 && (
+   418→                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+   419→                        <div className="flex items-center justify-between mb-2">
+   420→                          <span className="text-xs font-medium text-amber-700">Verification starts in</span>
+   421→                          <span className="text-sm font-bold text-amber-800">
+   422→                            {formatTime(depositProgress.timeToVerify)}
+   423→                          </span>
+   424→                        </div>
+   425→                        <Progress
+   426→                          value={Math.max(0, 100 - (depositProgress.timeToVerify / (config?.verifyDelaySeconds || 8)) * 100)}
+   427→                          className="h-2 bg-amber-100"
+   428→                        />
+   429→                      </div>
+   430→                    )}
+   431→
+   432→                    {/* Verifying progress */}
+   433→                    {depositProgress.isVerifying && (
+   434→                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+   435→                        <div className="flex items-center gap-2 mb-1">
+   436→                          <Loader2 className="h-3.5 w-3.5 text-blue-600 animate-spin" />
+   437→                          <span className="text-xs font-medium text-blue-700">Verifying payment...</span>
+   438→                        </div>
+   439→                        <div className="flex items-center gap-2 text-xs text-blue-600">
+   440→                          <span>Checking with {activeDeposit.paymentMethod === 'bkash' ? 'bKash' : activeDeposit.paymentMethod === 'nagad' ? 'Nagad' : 'Rocket'} API</span>
+   441→                          {activeDeposit.verificationAttempts !== undefined && activeDeposit.verificationAttempts > 0 && (
+   442→                            <Badge variant="outline" className="text-[10px] h-4 px-1 border-blue-300 text-blue-600">
+   443→                              Attempt {activeDeposit.verificationAttempts + 1}
+   444→                            </Badge>
+   445→                          )}
+   446→                        </div>
+   447→                      </div>
+   448→                    )}
+   449→
+   450→                    {/* Expiry timer */}
+   451→                    {depositProgress.expiresIn !== null && (
+   452→                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+   453→                        <span>Expires in</span>
+   454→                        <span className="font-mono font-medium">
+   455→                          {formatTime(depositProgress.expiresIn)}
+   456→                        </span>
+   457→                      </div>
+   458→                    )}
+   459→                  </div>
+   460→                )}
+   461→
+   462→                {/* Success State */}
+   463→                {depositProgress?.isComplete && (
+   464→                  <motion.div
+   465→                    initial={{ opacity: 0, y: 5 }}
+   466→                    animate={{ opacity: 1, y: 0 }}
+   467→                    className="bg-emerald-50 border border-emerald-200 rounded-lg p-4"
+   468→                  >
+   469→                    <div className="flex items-center gap-2 mb-1">
+   470→                      <CheckCheck className="h-5 w-5 text-emerald-600" />
+   471→                      <span className="font-bold text-emerald-700">Deposit Successful!</span>
+   472→                    </div>
+   473→                    <p className="text-sm text-emerald-600">
+   474→                      {activeDeposit.amount} TK has been credited to your balance.
+   475→                      {userBalance !== null && (
+   476→                        <span className="font-semibold"> New balance: {userBalance.toFixed(2)} TK</span>
+   477→                      )}
+   478→                    </p>
+   479→                  </motion.div>
+   480→                )}
+   481→
+   482→                {/* Failed State */}
+   483→                {depositProgress?.isFailed && (
+   484→                  <motion.div
+   485→                    initial={{ opacity: 0, y: 5 }}
+   486→                    animate={{ opacity: 1, y: 0 }}
+   487→                    className="bg-red-50 border border-red-200 rounded-lg p-4"
+   488→                  >
+   489→                    <div className="flex items-center gap-2 mb-1">
+   490→                      <XCircle className="h-5 w-5 text-red-500" />
+   491→                      <span className="font-bold text-red-700">
+   492→                        {STATUS_CONFIG[activeDeposit.status]?.label}
+   493→                      </span>
+   494→                    </div>
+   495→                    <p className="text-sm text-red-600">
+   496→                      {activeDeposit.adminNote || STATUS_CONFIG[activeDeposit.status]?.desc}
+   497→                    </p>
+   498→                  </motion.div>
+   499→                )}
+   500→
+   501→                {/* Automation Log */}
+   502→                {automationLogs.length > 0 && (
+   503→                  <div className="mt-4">
+   504→                    <p className="text-xs font-medium text-muted-foreground mb-2">Verification Log</p>
+   505→                    <div className="space-y-1.5">
+   506→                      {automationLogs.map((log, i) => (
+   507→                        <div key={i} className="flex items-start gap-2 text-xs">
+   508→                          <div className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${
+   509→                            log.status === 'success' ? 'bg-emerald-500'
+   510→                            : log.status === 'error' ? 'bg-red-500'
+   511→                            : log.status === 'warning' ? 'bg-amber-500'
+   512→                            : 'bg-blue-500'
+   513→                          }`} />
+   514→                          <span className="text-muted-foreground">{log.message}</span>
+   515→                        </div>
+   516→                      ))}
+   517→                    </div>
+   518→                  </div>
+   519→                )}
+   520→
+   521→                {/* Deposit Details */}
+   522→                <Separator className="my-4" />
+   523→                <div className="grid grid-cols-2 gap-3 text-sm">
+   524→                  <div>
+   525→                    <p className="text-xs text-muted-foreground">Method</p>
+   526→                    <p className="font-medium capitalize">{activeDeposit.paymentMethod}</p>
+   527→                  </div>
+   528→                  <div>
+   529→                    <p className="text-xs text-muted-foreground">TrxID</p>
+   530→                    <p className="font-mono text-xs">{activeDeposit.transactionId}</p>
+   531→                  </div>
+   532→                  <div>
+   533→                    <p className="text-xs text-muted-foreground">From</p>
+   534→                    <p className="font-mono text-xs">{activeDeposit.senderNumber}</p>
+   535→                  </div>
+   536→                  <div>
+   537→                    <p className="text-xs text-muted-foreground">Submitted</p>
+   538→                    <p className="text-xs">{new Date(activeDeposit.requestedAt).toLocaleString()}</p>
+   539→                  </div>
+   540→                </div>
+   541→
+   542→                {/* New Deposit Button */}
+   543→                {(depositProgress?.isComplete || depositProgress?.isFailed) && (
+   544→                  <Button
+   545→                    onClick={() => { setActiveDeposit(null); setDepositProgress(null); setStep('tracking') }}
+   546→                    className="w-full mt-4"
+   547→                    variant="outline"
+   548→                  >
+   549→                    Make Another Deposit
+   550→                  </Button>
+   551→                )}
+   552→              </CardContent>
+   553→            </Card>
+   554→          </motion.div>
+   555→        )}
+   556→      </AnimatePresence>
+   557→
+   558→      {/* Deposit Flow (when no active deposit) */}
+   559→      {!activeDeposit && (
+   560→        <>
+   561→          {/* Step 1: Select Payment Method */}
+   562→          {step === 1 && (
+   563→            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+   564→              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Step 1: Select Payment Method</h3>
+   565→              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   566→                {paymentMethods.map((method) => (
+   567→                  <motion.button
+   568→                    key={method.id}
+   569→                    whileHover={{ scale: 1.02 }}
+   570→                    whileTap={{ scale: 0.98 }}
+   571→                    onClick={() => setSelectedMethod(method.id)}
+   572→                    className={`relative p-4 rounded-xl border-2 text-left transition-all duration-200 ${
+   573→                      selectedMethod === method.id
+   574→                        ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+   575→                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+   576→                    }`}
+   577→                  >
+   578→                    {selectedMethod === method.id && (
+   579→                      <div className="absolute top-2 right-2">
+   580→                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+   581→                      </div>
+   582→                    )}
+   583→                    <div
+   584→                      className="h-10 w-10 rounded-lg flex items-center justify-center mb-2 text-white"
+   585→                      style={{ backgroundColor: method.color }}
+   586→                    >
+   587→                      {METHOD_ICONS[method.icon] || <Smartphone className="h-5 w-5" />}
+   588→                    </div>
+   589→                    <p className="font-bold text-sm">{method.name}</p>
+   590→                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">{method.number}</p>
+   591→                    <div className="flex items-center gap-1 mt-2">
+   592→                      <ShieldCheck className="h-3 w-3 text-emerald-500" />
+   593→                      <span className="text-[10px] text-emerald-600 font-medium">Auto-Verified</span>
+   594→                    </div>
+   595→                  </motion.button>
+   596→                ))}
+   597→              </div>
+   598→              {selectedMethod && (
+   599→                <Button onClick={() => setStep(2)} className="mt-4 w-full sm:w-auto">
+   600→                  Continue <ArrowRight className="h-4 w-4 ml-1" />
+   601→                </Button>
+   602→              )}
+   603→            </motion.div>
+   604→          )}
+   605→
+   606→          {/* Step 2: Payment Details */}
+   607→          {step === 2 && selectedMethodData && (
+   608→            <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
+   609→              <div className="flex items-center gap-2 mb-3">
+   610→                <Button variant="ghost" size="sm" onClick={() => setStep(1)} className="h-7 w-7 p-0">
+   611→                  <ArrowRight className="h-4 w-4 rotate-180" />
+   612→                </Button>
+   613→                <h3 className="text-sm font-semibold text-muted-foreground">Step 2: Send Payment</h3>
+   614→              </div>
+   615→
+   616→              <Card className="border-2" style={{ borderColor: selectedMethodData.color + '40' }}>
+   617→                <CardContent className="p-5">
+   618→                  {/* Payment Instructions */}
+   619→                  <div className="bg-gray-50 rounded-lg p-4 mb-4">
+   620→                    <p className="text-sm font-medium mb-2">Send money to this number:</p>
+   621→                    <div className="flex items-center justify-between">
+   622→                      <div className="flex items-center gap-3">
+   623→                        <div
+   624→                          className="h-12 w-12 rounded-xl flex items-center justify-center text-white"
+   625→                          style={{ backgroundColor: selectedMethodData.color }}
+   626→                        >
+   627→                          <CreditCard className="h-6 w-6" />
+   628→                        </div>
+   629→                        <div>
+   630→                          <p className="text-xl font-bold font-mono">{selectedMethodData.number}</p>
+   631→                          <p className="text-xs text-muted-foreground">{selectedMethodData.name} Merchant Account</p>
+   632→                        </div>
+   633→                      </div>
+   634→                      <Button
+   635→                        variant="outline"
+   636→                        size="sm"
+   637→                        onClick={() => copyToClipboard(selectedMethodData.number, 'number')}
+   638→                        className="shrink-0"
+   639→                      >
+   640→                        {copiedField === 'number' ? (
+   641→                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+   642→                        ) : (
+   643→                          <Copy className="h-4 w-4" />
+   644→                        )}
+   645→                      </Button>
+   646→                    </div>
+   647→                  </div>
+   648→
+   649→                  {/* Amount */}
+   650→                  <div className="space-y-3">
+   651→                    <div>
+   652→                      <Label className="text-sm font-medium">Amount (TK)</Label>
+   653→                      <div className="flex gap-2 mt-1.5 flex-wrap">
+   654→                        {QUICK_AMOUNTS.filter((a) => a >= (config?.minAmount || 10) && a <= (config?.maxAmount || 50000)).map((a) => (
+   655→                          <button
+   656→                            key={a}
+   657→                            onClick={() => setAmount(a.toString())}
+   658→                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+   659→                              amount === a.toString()
+   660→                                ? 'bg-emerald-600 text-white border-emerald-600'
+   661→                                : 'bg-white text-foreground border-gray-200 hover:border-emerald-300'
+   662→                            }`}
+   663→                          >
+   664→                            {a}
+   665→                          </button>
+   666→                        ))}
+   667→                      </div>
+   668→                      <Input
+   669→                        type="number"
+   670→                        value={amount}
+   671→                        onChange={(e) => setAmount(e.target.value)}
+   672→                        placeholder={`Min: ${config?.minAmount || 10} TK — Max: ${config?.maxAmount || 50000} TK`}
+   673→                        className="mt-2"
+   674→                        min={config?.minAmount}
+   675→                        max={config?.maxAmount}
+   676→                      />
+   677→                    </div>
+   678→
+   679→                    <div>
+   680→                      <Label className="text-sm font-medium">Your {selectedMethodData.name} Number</Label>
+   681→                      <Input
+   682→                        value={senderNumber}
+   683→                        onChange={(e) => setSenderNumber(e.target.value)}
+   684→                        placeholder="01XXXXXXXXX"
+   685→                        className="mt-1.5"
+   686→                        maxLength={11}
+   687→                      />
+   688→                      <p className="text-xs text-muted-foreground mt-1">The number you sent payment from</p>
+   689→                    </div>
+   690→                  </div>
+   691→
+   692→                  <div className="flex gap-2 mt-4">
+   693→                    <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
+   694→                      Back
+   695→                    </Button>
+   696→                    <Button
+   697→                      onClick={() => setStep(3)}
+   698→                      className="flex-1"
+   699→                      disabled={!amount || parseFloat(amount) < (config?.minAmount || 10) || !senderNumber.match(/^01[3-9]\d{8}$/)}
+   700→                    >
+   701→                      Continue <ArrowRight className="h-4 w-4 ml-1" />
+   702→                    </Button>
+   703→                  </div>
+   704→                </CardContent>
+   705→              </Card>
+   706→            </motion.div>
+   707→          )}
+   708→
+   709→          {/* Step 3: Transaction ID */}
+   710→          {step === 3 && selectedMethodData && (
+   711→            <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
+   712→              <div className="flex items-center gap-2 mb-3">
+   713→                <Button variant="ghost" size="sm" onClick={() => setStep(2)} className="h-7 w-7 p-0">
+   714→                  <ArrowRight className="h-4 w-4 rotate-180" />
+   715→                </Button>
+   716→                <h3 className="text-sm font-semibold text-muted-foreground">Step 3: Enter Transaction ID</h3>
+   717→              </div>
+   718→
+   719→              <Card>
+   720→                <CardContent className="p-5">
+   721→                  {/* Summary */}
+   722→                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">
+   723→                    <div className="flex items-center justify-between">
+   724→                      <div>
+   725→                        <p className="text-xs text-emerald-600 font-medium">Deposit Summary</p>
+   726→                        <p className="text-2xl font-bold text-emerald-700 mt-0.5">{amount} TK</p>
+   727→                      </div>
+   728→                      <div className="text-right text-sm">
+   729→                        <p className="text-muted-foreground">Via {selectedMethodData.name}</p>
+   730→                        <p className="font-mono text-xs">{selectedMethodData.number}</p>
+   731→                      </div>
+   732→                    </div>
+   733→                  </div>
+   734→
+   735→                  {/* TrxID Input */}
+   736→                  <div className="space-y-3">
+   737→                    <div>
+   738→                      <Label className="text-sm font-medium">Transaction ID (TrxID)</Label>
+   739→                      <Input
+   740→                        value={transactionId}
+   741→                        onChange={(e) => setTransactionId(e.target.value.toUpperCase())}
+   742→                        placeholder="e.g. TXN8A3K9M2"
+   743→                        className="mt-1.5 font-mono text-lg tracking-wider uppercase"
+   744→                        maxLength={20}
+   745→                      />
+   746→                      <p className="text-xs text-muted-foreground mt-1">
+   747→                        Find this in your {selectedMethodData.name} payment history / SMS
+   748→                      </p>
+   749→                    </div>
+   750→
+   751→                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+   752→                      <div className="flex items-start gap-2">
+   753→                        <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+   754→                        <div className="text-xs text-blue-700">
+   755→                          <p className="font-medium">Fully Automated Verification</p>
+   756→                          <p className="mt-0.5">
+   757→                            After submission, the system will automatically verify your payment in ~{config?.verifyDelaySeconds}s.
+   758→                            No need to wait for admin approval — your balance will be updated instantly.
+   759→                          </p>
+   760→                        </div>
+   761→                      </div>
+   762→                    </div>
+   763→                  </div>
+   764→
+   765→                  <div className="flex gap-2 mt-4">
+   766→                    <Button variant="outline" onClick={() => setStep(2)} className="flex-1">
+   767→                      Back
+   768→                    </Button>
+   769→                    <Button
+   770→                      onClick={handleSubmit}
+   771→                      disabled={submitting || !transactionId.match(/^[A-Za-z0-9]{6,20}$/)}
+   772→                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+   773→                    >
+   774→                      {submitting ? (
+   775→                        <>
+   776→                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+   777→                          Submitting...
+   778→                        </>
+   779→                      ) : (
+   780→                        <>
+   781→                          <ShieldCheck className="h-4 w-4 mr-2" />
+   782→                          Submit Deposit
+   783→                        </>
+   784→                      )}
+   785→                    </Button>
+   786→                  </div>
+   787→                </CardContent>
+   788→              </Card>
+   789→            </motion.div>
+   790→          )}
+   791→
+   792→          {/* Start Deposit Button (when step is 'tracking' and no active deposit) */}
+   793→          {step === 'tracking' && !activeDeposit && (
+   794→            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+   795→              <Card
+   796→                className="border-dashed border-2 border-emerald-200 bg-emerald-50/50 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-all"
+   797→                onClick={() => setStep(1)}
+   798→              >
+   799→                <CardContent className="py-8 text-center">
+   800→                  <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+   801→                    <ArrowDownCircle className="h-7 w-7 text-emerald-600" />
+   802→                  </div>
+   803→                  <h3 className="font-bold text-emerald-800">Make a Deposit</h3>
+   804→                  <p className="text-sm text-emerald-600 mt-1">Add funds to your balance via bKash, Nagad, or Rocket</p>
+   805→                  <Button className="mt-4 bg-emerald-600 hover:bg-emerald-700">
+   806→                    <Landmark className="h-4 w-4 mr-2" />
+   807→                    Start Deposit
+   808→                  </Button>
+   809→                </CardContent>
+   810→              </Card>
+   811→            </motion.div>
+   812→          )}
+   813→        </>
+   814→      )}
+   815→
+   816→      {/* Deposit History */}
+   817→      <Card>
+   818→        <CardHeader className="pb-3">
+   819→          <div className="flex items-center justify-between">
+   820→            <CardTitle className="text-sm font-semibold">Deposit History</CardTitle>
+   821→            <Button variant="ghost" size="sm" onClick={fetchData} className="h-7 px-2">
+   822→              <RefreshCw className="h-3.5 w-3.5" />
+   823→            </Button>
+   824→          </div>
+   825→        </CardHeader>
+   826→        <CardContent className="pt-0">
+   827→          {deposits.length === 0 ? (
+   828→            <div className="text-center py-6">
+   829→              <SmartphoneNfc className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-40" />
+   830→              <p className="text-sm text-muted-foreground">No deposits yet</p>
+   831→            </div>
+   832→          ) : (
+   833→            <ScrollArea className="max-h-80">
+   834→              <div className="space-y-2">
+   835→                {deposits.map((dep) => {
+   836→                  const sc = STATUS_CONFIG[dep.status]
+   837→                  return (
+   838→                    <motion.div
+   839→                      key={dep.id}
+   840→                      initial={{ opacity: 0 }}
+   841→                      animate={{ opacity: 1 }}
+   842→                      className="flex items-center justify-between p-3 rounded-lg border bg-white hover:shadow-sm transition-shadow"
+   843→                    >
+   844→                      <div className="flex items-center gap-3">
+   845→                        <div
+   846→                          className="h-2 w-2 rounded-full shrink-0"
+   847→                          style={{
+   848→                            backgroundColor: dep.status === 'auto_verified' || dep.status === 'verified' ? '#10b981'
+   849→                              : dep.status === 'pending' || dep.status === 'verifying' ? '#f59e0b'
+   850→                              : '#ef4444',
+   851→                          }}
+   852→                        />
+   853→                        <div>
+   854→                          <p className="text-sm font-semibold">{dep.amount} TK</p>
+   855→                          <p className="text-xs text-muted-foreground">
+   856→                            {dep.paymentMethod.charAt(0).toUpperCase() + dep.paymentMethod.slice(1)} &middot; {dep.transactionId}
+   857→                          </p>
+   858→                        </div>
+   859→                      </div>
+   860→                      <div className="text-right">
+   861→                        <Badge variant="outline" className={`text-[10px] ${sc?.color}`}>
+   862→                          {sc?.icon}
+   863→                          <span className="ml-1">{sc?.label}</span>
+   864→                        </Badge>
+   865→                        <p className="text-[10px] text-muted-foreground mt-1">
+   866→                          {new Date(dep.requestedAt).toLocaleString()}
+   867→                        </p>
+   868→                      </div>
+   869→                    </motion.div>
+   870→                  )
+   871→                })}
+   872→              </div>
+   873→            </ScrollArea>
+   874→          )}
+   875→        </CardContent>
+   876→      </Card>
+   877→    </div>
+   878→  )
+   879→}

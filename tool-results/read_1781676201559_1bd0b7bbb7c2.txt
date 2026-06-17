@@ -1,0 +1,763 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState, useCallback } from 'react'
+     4→import { Card, CardContent } from '@/components/ui/card'
+     5→import { Button } from '@/components/ui/button'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Skeleton } from '@/components/ui/skeleton'
+     8→import { Input } from '@/components/ui/input'
+     9→import { Textarea } from '@/components/ui/textarea'
+    10→import { Label } from '@/components/ui/label'
+    11→import { Switch } from '@/components/ui/switch'
+    12→import {
+    13→  Table,
+    14→  TableBody,
+    15→  TableCell,
+    16→  TableHead,
+    17→  TableHeader,
+    18→  TableRow,
+    19→} from '@/components/ui/table'
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogFooter,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→} from '@/components/ui/dialog'
+    28→import {
+    29→  Select,
+    30→  SelectContent,
+    31→  SelectItem,
+    32→  SelectTrigger,
+    33→  SelectValue,
+    34→} from '@/components/ui/select'
+    35→import { ScrollArea } from '@/components/ui/scroll-area'
+    36→import { toast } from 'sonner'
+    37→import {
+    38→  Check,
+    39→  X,
+    40→  Clock,
+    41→  ShieldCheck,
+    42→  CheckCircle2,
+    43→  XCircle,
+    44→  AlertTriangle,
+    45→  ArrowDownCircle,
+    46→  Settings,
+    47→  Loader2,
+    48→  Search,
+    49→  TrendingUp,
+    50→  Banknote,
+    51→  Timer,
+    52→  RotateCcw,
+    53→  Activity,
+    54→  Zap,
+    55→  FileText,
+    56→  RefreshCw,
+    57→} from 'lucide-react'
+    58→
+    59→interface Deposit {
+    60→  id: string
+    61→  amount: number
+    62→  paymentMethod: string
+    63→  senderNumber: string
+    64→  transactionId: string
+    65→  status: string
+    66→  verificationMethod: string
+    67→  adminNote: string | null
+    68→  requestedAt: string
+    69→  verifiedAt: string | null
+    70→  expiresAt: string | null
+    71→  verificationAttempts?: number
+    72→  user: {
+    73→    id: string
+    74→    firstName: string
+    75→    lastName: string | null
+    76→    username: string | null
+    77→    telegramId: number
+    78→    balance: number
+    79→    vipLevel: number
+    80→    isBlocked: boolean
+    81→  }
+    82→}
+    83→
+    84→interface AutomationLog {
+    85→  id: string
+    86→  action: string
+    87→  status: string
+    88→  message: string
+    89→  createdAt: string
+    90→  deposit: {
+    91→    amount: number
+    92→    paymentMethod: string
+    93→    transactionId: string
+    94→    status: string
+    95→    user: { firstName: string; telegramId: number } | null
+    96→  }
+    97→}
+    98→
+    99→interface AutomationStats {
+   100→  logsToday: number
+   101→  successToday: number
+   102→  errorsToday: number
+   103→  successRate: number
+   104→  recentLogs: AutomationLog[]
+   105→}
+   106→
+   107→const STATUS_STYLES: Record<string, { badge: string; icon: React.ReactNode }> = {
+   108→  pending: { badge: 'bg-amber-100 text-amber-700', icon: <Clock className="h-3.5 w-3.5" /> },
+   109→  verifying: { badge: 'bg-blue-100 text-blue-700', icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
+   110→  auto_verified: { badge: 'bg-emerald-100 text-emerald-700', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+   111→  verified: { badge: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+   112→  rejected: { badge: 'bg-red-100 text-red-700', icon: <XCircle className="h-3.5 w-3.5" /> },
+   113→  expired: { badge: 'bg-gray-100 text-gray-600', icon: <Timer className="h-3.5 w-3.5" /> },
+   114→  failed: { badge: 'bg-red-100 text-red-700', icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+   115→}
+   116→
+   117→const METHOD_STYLES: Record<string, string> = {
+   118→  bkash: 'bg-pink-100 text-pink-700',
+   119→  nagad: 'bg-orange-100 text-orange-700',
+   120→  rocket: 'bg-purple-100 text-purple-700',
+   121→}
+   122→
+   123→export default function DepositsPanel() {
+   124→  const [deposits, setDeposits] = useState<Deposit[]>([])
+   125→  const [stats, setStats] = useState<Record<string, number>>({})
+   126→  const [automation, setAutomation] = useState<AutomationStats | null>(null)
+   127→  const [loading, setLoading] = useState(true)
+   128→  const [search, setSearch] = useState('')
+   129→  const [statusFilter, setStatusFilter] = useState('all')
+   130→  const [methodFilter, setMethodFilter] = useState('all')
+   131→  const [showSettings, setShowSettings] = useState(false)
+   132→  const [showLogs, setShowLogs] = useState(false)
+   133→  const [actionDeposit, setActionDeposit] = useState<Deposit | null>(null)
+   134→  const [actionType, setActionType] = useState<string>('')
+   135→  const [actionNote, setActionNote] = useState('')
+   136→  const [actionLoading, setActionLoading] = useState(false)
+   137→  const [refreshing, setRefreshing] = useState(false)
+   138→
+   139→  // Settings form
+   140→  const [settings, setSettings] = useState({
+   141→    deposit_bkash_number: '',
+   142→    deposit_nagad_number: '',
+   143→    deposit_rocket_number: '',
+   144→    deposit_min_amount: '10',
+   145→    deposit_max_amount: '50000',
+   146→    deposit_auto_verify: true,
+   147→    deposit_expire_minutes: '30',
+   148→    deposit_verify_delay_seconds: '8',
+   149→    deposit_max_verify_attempts: '3',
+   150→    deposit_auto_expire: true,
+   151→    deposit_enabled: true,
+   152→  })
+   153→  const [settingsLoading, setSettingsLoading] = useState(false)
+   154→
+   155→  const fetchData = useCallback(async () => {
+   156→    try {
+   157→      const params = new URLSearchParams()
+   158→      if (statusFilter !== 'all') params.set('status', statusFilter)
+   159→      if (methodFilter !== 'all') params.set('method', methodFilter)
+   160→      if (search) params.set('search', search)
+   161→      params.set('automation', 'true')
+   162→
+   163→      const res = await fetch(`/api/admin/deposits?${params}`)
+   164→      const data = await res.json()
+   165→      if (data.error) { toast.error(data.error); return }
+   166→      setDeposits(data.deposits || [])
+   167→      setStats(data.stats || {})
+   168→      setAutomation(data.automation || null)
+   169→    } catch {
+   170→      toast.error('Failed to fetch deposits')
+   171→    } finally {
+   172→      setLoading(false)
+   173→      setRefreshing(false)
+   174→    }
+   175→  }, [statusFilter, methodFilter, search])
+   176→
+   177→  useEffect(() => {
+   178→    fetchData()
+   179→    const interval = setInterval(fetchData, 15000)
+   180→    return () => clearInterval(interval)
+   181→  }, [fetchData])
+   182→
+   183→  const handleRefresh = () => {
+   184→    setRefreshing(true)
+   185→    fetchData()
+   186→  }
+   187→
+   188→  const handleAction = async () => {
+   189→    if (!actionDeposit || !actionType) return
+   190→    setActionLoading(true)
+   191→    try {
+   192→      const res = await fetch('/api/admin/deposits', {
+   193→        method: 'PATCH',
+   194→        headers: { 'Content-Type': 'application/json' },
+   195→        body: JSON.stringify({
+   196→          depositId: actionDeposit.id,
+   197→          action: actionType,
+   198→          adminNote: actionNote || undefined,
+   199→        }),
+   200→      })
+   201→      const data = await res.json()
+   202→      if (data.error) { toast.error(data.error); return }
+   203→      toast.success(data.message)
+   204→      setActionDeposit(null)
+   205→      setActionType('')
+   206→      setActionNote('')
+   207→      fetchData()
+   208→    } catch {
+   209→      toast.error('Action failed')
+   210→    } finally {
+   211→      setActionLoading(false)
+   212→    }
+   213→  }
+   214→
+   215→  const handleSettingsSave = async () => {
+   216→    setSettingsLoading(true)
+   217→    try {
+   218→      const res = await fetch('/api/admin/deposits', {
+   219→        method: 'POST',
+   220→        headers: { 'Content-Type': 'application/json' },
+   221→        body: JSON.stringify(settings),
+   222→      })
+   223→      const data = await res.json()
+   224→      if (data.error) { toast.error(data.error); return }
+   225→      toast.success('Deposit settings updated')
+   226→      setShowSettings(false)
+   227→    } catch {
+   228→      toast.error('Failed to update settings')
+   229→    } finally {
+   230→      setSettingsLoading(false)
+   231→    }
+   232→  }
+   233→
+   234→  const openActionDialog = (deposit: Deposit, action: string) => {
+   235→    setActionDeposit(deposit)
+   236→    setActionType(action)
+   237→    setActionNote('')
+   238→  }
+   239→
+   240→  if (loading) {
+   241→    return (
+   242→      <div className="space-y-4">
+   243→        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+   244→          {Array.from({ length: 7 }).map((_, i) => (
+   245→            <Skeleton key={i} className="h-20 rounded-xl" />
+   246→          ))}
+   247→        </div>
+   248→        <Skeleton className="h-96 rounded-xl" />
+   249→      </div>
+   250→    )
+   251→  }
+   252→
+   253→  return (
+   254→    <div className="space-y-4">
+   255→      {/* Automation Status Banner */}
+   256→      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl p-4 text-white">
+   257→        <div className="flex items-center justify-between flex-wrap gap-3">
+   258→          <div className="flex items-center gap-3">
+   259→            <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
+   260→              <Zap className="h-5 w-5" />
+   261→            </div>
+   262→            <div>
+   263→              <h3 className="font-bold text-sm">Deposit Automation Active</h3>
+   264→              <p className="text-xs text-emerald-100">
+   265→                {automation
+   266→                  ? `${automation.logsToday} actions today — ${automation.successRate}% success rate`
+   267→                  : 'All deposits are verified automatically'}
+   268→              </p>
+   269→            </div>
+   270→          </div>
+   271→          <div className="flex items-center gap-2">
+   272→            <Button
+   273→              variant="ghost"
+   274→              size="sm"
+   275→              onClick={() => setShowLogs(true)}
+   276→              className="text-white hover:bg-white/20 h-8"
+   277→            >
+   278→              <FileText className="h-4 w-4 mr-1" />
+   279→              Logs
+   280→            </Button>
+   281→            <Button
+   282→              variant="ghost"
+   283→              size="sm"
+   284→              onClick={() => setShowSettings(true)}
+   285→              className="text-white hover:bg-white/20 h-8"
+   286→            >
+   287→              <Settings className="h-4 w-4 mr-1" />
+   288→              Config
+   289→            </Button>
+   290→            <Button
+   291→              variant="ghost"
+   292→              size="sm"
+   293→              onClick={handleRefresh}
+   294→              className="text-white hover:bg-white/20 h-8"
+   295→            >
+   296→              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+   297→            </Button>
+   298→          </div>
+   299→        </div>
+   300→      </div>
+   301→
+   302→      {/* Stats Cards */}
+   303→      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+   304→        {[
+   305→          { label: 'Total', value: stats.total || 0, icon: ArrowDownCircle, color: 'text-gray-600' },
+   306→          { label: 'Pending', value: (stats.pending || 0) + (stats.verifying || 0), icon: Clock, color: 'text-amber-600' },
+   307→          { label: 'Auto Verified', value: stats.autoVerified || 0, icon: ShieldCheck, color: 'text-emerald-600' },
+   308→          { label: 'Manual', value: stats.verified || 0, icon: CheckCircle2, color: 'text-blue-600' },
+   309→          { label: 'Rejected', value: (stats.rejected || 0) + (stats.failed || 0), icon: XCircle, color: 'text-red-600' },
+   310→          { label: 'Expired', value: stats.expired || 0, icon: Timer, color: 'text-gray-500' },
+   311→          {
+   312→            label: 'Total Amount',
+   313→            value: `${((stats.totalAmount || 0)).toLocaleString()} TK`,
+   314→            icon: Banknote,
+   315→            color: 'text-emerald-600',
+   316→          },
+   317→        ].map((stat) => (
+   318→          <Card key={stat.label}>
+   319→            <CardContent className="p-3">
+   320→              <div className="flex items-center justify-between">
+   321→                <p className="text-[10px] text-muted-foreground font-medium truncate">{stat.label}</p>
+   322→                <stat.icon className={`h-3.5 w-3.5 ${stat.color} shrink-0`} />
+   323→              </div>
+   324→              <p className="text-lg font-bold mt-1 leading-tight">{stat.value}</p>
+   325→              {stat.label === 'Auto Verified' && (stats.total || 0) > 0 && (
+   326→                <p className="text-[10px] text-emerald-600 font-medium">
+   327→                  {stats.automationRate || 0}% auto rate
+   328→                </p>
+   329→              )}
+   330→              {stat.label === 'Total Amount' && (
+   331→                <p className="text-[10px] text-muted-foreground">
+   332→                  Today: {((stats.todayAmount || 0)).toLocaleString()} TK ({stats.todayDeposits || 0} deps)
+   333→                </p>
+   334→              )}
+   335→            </CardContent>
+   336→          </Card>
+   337→        ))}
+   338→      </div>
+   339→
+   340→      {/* Filters */}
+   341→      <Card>
+   342→        <CardContent className="p-3">
+   343→          <div className="flex flex-wrap items-center gap-2">
+   344→            <div className="relative flex-1 min-w-[200px]">
+   345→              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   346→              <Input
+   347→                value={search}
+   348→                onChange={(e) => setSearch(e.target.value)}
+   349→                placeholder="Search TrxID, name, phone..."
+   350→                className="pl-8 h-8 text-xs"
+   351→              />
+   352→            </div>
+   353→            <Select value={statusFilter} onValueChange={setStatusFilter}>
+   354→              <SelectTrigger className="h-8 w-[140px] text-xs">
+   355→                <SelectValue placeholder="Status" />
+   356→              </SelectTrigger>
+   357→              <SelectContent>
+   358→                <SelectItem value="all">All Status</SelectItem>
+   359→                <SelectItem value="pending">Pending</SelectItem>
+   360→                <SelectItem value="verifying">Verifying</SelectItem>
+   361→                <SelectItem value="auto_verified">Auto Verified</SelectItem>
+   362→                <SelectItem value="verified">Verified</SelectItem>
+   363→                <SelectItem value="rejected">Rejected</SelectItem>
+   364→                <SelectItem value="expired">Expired</SelectItem>
+   365→                <SelectItem value="failed">Failed</SelectItem>
+   366→              </SelectContent>
+   367→            </Select>
+   368→            <Select value={methodFilter} onValueChange={setMethodFilter}>
+   369→              <SelectTrigger className="h-8 w-[120px] text-xs">
+   370→                <SelectValue placeholder="Method" />
+   371→              </SelectTrigger>
+   372→              <SelectContent>
+   373→                <SelectItem value="all">All Methods</SelectItem>
+   374→                <SelectItem value="bkash">bKash</SelectItem>
+   375→                <SelectItem value="nagad">Nagad</SelectItem>
+   376→                <SelectItem value="rocket">Rocket</SelectItem>
+   377→              </SelectContent>
+   378→            </Select>
+   379→          </div>
+   380→        </CardContent>
+   381→      </Card>
+   382→
+   383→      {/* Deposits Table */}
+   384→      <Card>
+   385→        <CardContent className="p-0">
+   386→          <Table>
+   387→            <TableHeader>
+   388→              <TableRow>
+   389→                <TableHead className="text-xs">User</TableHead>
+   390→                <TableHead className="text-xs">Amount</TableHead>
+   391→                <TableHead className="text-xs">Method</TableHead>
+   392→                <TableHead className="text-xs">TrxID</TableHead>
+   393→                <TableHead className="text-xs">Status</TableHead>
+   394→                <TableHead className="text-xs">Verified</TableHead>
+   395→                <TableHead className="text-xs">Balance</TableHead>
+   396→                <TableHead className="text-xs text-right">Actions</TableHead>
+   397→              </TableRow>
+   398→            </TableHeader>
+   399→            <TableBody>
+   400→              {deposits.length === 0 ? (
+   401→                <TableRow>
+   402→                  <TableCell colSpan={8} className="text-center py-8 text-sm text-muted-foreground">
+   403→                    No deposits found
+   404→                  </TableCell>
+   405→                </TableRow>
+   406→              ) : (
+   407→                deposits.map((dep) => {
+   408→                  const ss = STATUS_STYLES[dep.status] || STATUS_STYLES.pending
+   409→                  const canVerify = ['pending', 'verifying'].includes(dep.status)
+   410→                  const canRetry = ['failed', 'expired', 'rejected'].includes(dep.status)
+   411→
+   412→                  return (
+   413→                    <TableRow key={dep.id} className="text-xs">
+   414→                      <TableCell>
+   415→                        <div>
+   416→                          <p className="font-medium">{dep.user.firstName} {dep.user.lastName || ''}</p>
+   417→                          <p className="text-muted-foreground"> @{dep.user.username || dep.user.telegramId}</p>
+   418→                        </div>
+   419→                      </TableCell>
+   420→                      <TableCell className="font-bold">{dep.amount} TK</TableCell>
+   421→                      <TableCell>
+   422→                        <Badge variant="secondary" className={`text-[10px] ${METHOD_STYLES[dep.paymentMethod] || ''}`}>
+   423→                          {dep.paymentMethod}
+   424→                        </Badge>
+   425→                      </TableCell>
+   426→                      <TableCell>
+   427→                        <code className="text-[10px] font-mono bg-gray-50 px-1.5 py-0.5 rounded">
+   428→                          {dep.transactionId}
+   429→                        </code>
+   430→                        <p className="text-[10px] text-muted-foreground mt-0.5">{dep.senderNumber}</p>
+   431→                      </TableCell>
+   432→                      <TableCell>
+   433→                        <div className="flex flex-col gap-1">
+   434→                          <Badge variant="outline" className={`text-[10px] w-fit ${ss.badge}`}>
+   435→                            {ss.icon}
+   436→                            <span className="ml-1 capitalize">{dep.status.replace('_', ' ')}</span>
+   437→                          </Badge>
+   438→                          {dep.verificationMethod === 'auto' && (
+   439→                            <span className="text-[9px] text-emerald-600 flex items-center gap-0.5">
+   440→                              <ShieldCheck className="h-2.5 w-2.5" /> Auto
+   441→                            </span>
+   442→                          )}
+   443→                        </div>
+   444→                      </TableCell>
+   445→                      <TableCell className="text-muted-foreground">
+   446→                        {dep.verifiedAt
+   447→                          ? new Date(dep.verifiedAt).toLocaleString()
+   448→                          : <span className="text-muted-foreground">—</span>
+   449→                        }
+   450→                      </TableCell>
+   451→                      <TableCell className="font-mono">{dep.user.balance.toFixed(0)} TK</TableCell>
+   452→                      <TableCell className="text-right">
+   453→                        <div className="flex items-center justify-end gap-1">
+   454→                          {canVerify && (
+   455→                            <Button
+   456→                              size="sm"
+   457→                              variant="ghost"
+   458→                              className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+   459→                              onClick={() => openActionDialog(dep, 'verify')}
+   460→                              title="Verify"
+   461→                            >
+   462→                              <Check className="h-3.5 w-3.5" />
+   463→                            </Button>
+   464→                          )}
+   465→                          {canVerify && (
+   466→                            <Button
+   467→                              size="sm"
+   468→                              variant="ghost"
+   469→                              className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+   470→                              onClick={() => openActionDialog(dep, 'reject')}
+   471→                              title="Reject"
+   472→                            >
+   473→                              <X className="h-3.5 w-3.5" />
+   474→                            </Button>
+   475→                          )}
+   476→                          {canRetry && (
+   477→                            <Button
+   478→                              size="sm"
+   479→                              variant="ghost"
+   480→                              className="h-7 w-7 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+   481→                              onClick={() => openActionDialog(dep, 'retry')}
+   482→                              title="Retry"
+   483→                            >
+   484→                              <RotateCcw className="h-3.5 w-3.5" />
+   485→                            </Button>
+   486→                          )}
+   487→                        </div>
+   488→                      </TableCell>
+   489→                    </TableRow>
+   490→                  )
+   491→                })
+   492→              )}
+   493→            </TableBody>
+   494→          </Table>
+   495→        </CardContent>
+   496→      </Card>
+   497→
+   498→      {/* Action Dialog */}
+   499→      <Dialog open={!!actionDeposit} onOpenChange={(open) => !open && setActionDeposit(null)}>
+   500→        <DialogContent className="sm:max-w-[400px]">
+   501→          <DialogHeader>
+   502→            <DialogTitle className="text-sm">
+   503→              {actionType === 'verify' && 'Verify Deposit'}
+   504→              {actionType === 'reject' && 'Reject Deposit'}
+   505→              {actionType === 'retry' && 'Retry Deposit'}
+   506→              {actionType === 'expire' && 'Expire Deposit'}
+   507→            </DialogTitle>
+   508→            <DialogDescription className="text-xs">
+   509→              {actionDeposit && (
+   510→                <>
+   511→                  {actionDeposit.amount} TK via {actionDeposit.paymentMethod} — TrxID: {actionDeposit.transactionId}
+   512→                  <br />User: {actionDeposit.user.firstName} (Balance: {actionDeposit.user.balance.toFixed(0)} TK)
+   513→                </>
+   514→              )}
+   515→            </DialogDescription>
+   516→          </DialogHeader>
+   517→          <div className="space-y-3">
+   518→            <div>
+   519→              <Label className="text-xs">Note (optional)</Label>
+   520→              <Textarea
+   521→                value={actionNote}
+   522→                onChange={(e) => setActionNote(e.target.value)}
+   523→                placeholder={actionType === 'verify' ? 'Reason for manual verification...' : 'Reason for rejection...'}
+   524→                className="mt-1 text-xs"
+   525→                rows={2}
+   526→              />
+   527→            </div>
+   528→            {actionType === 'verify' && actionDeposit?.status === 'pending' && (
+   529→              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs text-emerald-700">
+   530→                <strong>Preview:</strong> Balance will increase from {actionDeposit?.user.balance.toFixed(0)} TK to{' '}
+   531→                {(actionDeposit?.user.balance + (actionDeposit?.amount || 0)).toFixed(0)} TK
+   532→              </div>
+   533→            )}
+   534→          </div>
+   535→          <DialogFooter>
+   536→            <Button variant="outline" size="sm" onClick={() => setActionDeposit(null)}>
+   537→              Cancel
+   538→            </Button>
+   539→            <Button
+   540→              size="sm"
+   541→              onClick={handleAction}
+   542→              disabled={actionLoading}
+   543→              className={
+   544→                actionType === 'verify' || actionType === 'retry'
+   545→                  ? 'bg-emerald-600 hover:bg-emerald-700'
+   546→                  : actionType === 'reject'
+   547→                  ? 'bg-red-600 hover:bg-red-700'
+   548→                  : ''
+   549→              }
+   550→            >
+   551→              {actionLoading && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+   552→              {actionType === 'verify' && 'Verify & Credit'}
+   553→              {actionType === 'reject' && 'Reject'}
+   554→              {actionType === 'retry' && 'Retry Automation'}
+   555→              {actionType === 'expire' && 'Mark Expired'}
+   556→            </Button>
+   557→          </DialogFooter>
+   558→        </DialogContent>
+   559→      </Dialog>
+   560→
+   561→      {/* Settings Dialog */}
+   562→      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+   563→        <DialogContent className="sm:max-w-[500px] max-h-[85vh]">
+   564→          <DialogHeader>
+   565→            <DialogTitle className="flex items-center gap-2">
+   566→              <Settings className="h-4 w-4" />
+   567→              Deposit Automation Settings
+   568→            </DialogTitle>
+   569→            <DialogDescription className="text-xs">
+   570→              Configure the automated deposit verification system
+   571→            </DialogDescription>
+   572→          </DialogHeader>
+   573→          <ScrollArea className="max-h-[60vh] pr-3">
+   574→            <div className="space-y-4">
+   575→              {/* Payment Numbers */}
+   576→              <div>
+   577→                <Label className="text-xs font-semibold">Payment Numbers</Label>
+   578→                <div className="grid gap-2 mt-2">
+   579→                  {[
+   580→                    { key: 'deposit_bkash_number', label: 'bKash Number', color: 'text-pink-600' },
+   581→                    { key: 'deposit_nagad_number', label: 'Nagad Number', color: 'text-orange-600' },
+   582→                    { key: 'deposit_rocket_number', label: 'Rocket Number', color: 'text-purple-600' },
+   583→                  ].map((item) => (
+   584→                    <div key={item.key}>
+   585→                      <Label className={`text-[10px] ${item.color} font-medium`}>{item.label}</Label>
+   586→                      <Input
+   587→                        value={settings[item.key as keyof typeof settings]}
+   588→                        onChange={(e) => setSettings((s) => ({ ...s, [item.key]: e.target.value }))}
+   589→                        placeholder="01XXXXXXXXX"
+   590→                        className="h-8 text-xs mt-0.5"
+   591→                      />
+   592→                    </div>
+   593→                  ))}
+   594→                </div>
+   595→              </div>
+   596→
+   597→              {/* Amount Limits */}
+   598→              <div>
+   599→                <Label className="text-xs font-semibold">Amount Limits</Label>
+   600→                <div className="grid grid-cols-2 gap-2 mt-2">
+   601→                  <div>
+   602→                    <Label className="text-[10px] text-muted-foreground">Min Amount (TK)</Label>
+   603→                    <Input
+   604→                      type="number"
+   605→                      value={settings.deposit_min_amount}
+   606→                      onChange={(e) => setSettings((s) => ({ ...s, deposit_min_amount: e.target.value }))}
+   607→                      className="h-8 text-xs mt-0.5"
+   608→                    />
+   609→                  </div>
+   610→                  <div>
+   611→                    <Label className="text-[10px] text-muted-foreground">Max Amount (TK)</Label>
+   612→                    <Input
+   613→                      type="number"
+   614→                      value={settings.deposit_max_amount}
+   615→                      onChange={(e) => setSettings((s) => ({ ...s, deposit_max_amount: e.target.value }))}
+   616→                      className="h-8 text-xs mt-0.5"
+   617→                    />
+   618→                  </div>
+   619→                </div>
+   620→              </div>
+   621→
+   622→              {/* Automation Controls */}
+   623→              <div>
+   624→                <Label className="text-xs font-semibold">Automation Controls</Label>
+   625→                <div className="space-y-3 mt-2">
+   626→                  {[
+   627→                    {
+   628→                      key: 'deposit_enabled' as const,
+   629→                      label: 'Enable Deposits',
+   630→                      desc: 'Allow users to submit new deposits',
+   631→                    },
+   632→                    {
+   633→                      key: 'deposit_auto_verify' as const,
+   634→                      label: 'Auto-Verify Deposits',
+   635→                      desc: 'Automatically verify all deposits without admin intervention',
+   636→                    },
+   637→                    {
+   638→                      key: 'deposit_auto_expire' as const,
+   639→                      label: 'Auto-Expire',
+   640→                      desc: 'Automatically expire deposits past their timeout',
+   641→                    },
+   642→                  ].map((toggle) => (
+   643→                    <div key={toggle.key} className="flex items-center justify-between">
+   644→                      <div>
+   645→                        <p className="text-xs font-medium">{toggle.label}</p>
+   646→                        <p className="text-[10px] text-muted-foreground">{toggle.desc}</p>
+   647→                      </div>
+   648→                      <Switch
+   649→                        checked={settings[toggle.key] as boolean}
+   650→                        onCheckedChange={(checked) =>
+   651→                          setSettings((s) => ({ ...s, [toggle.key]: checked }))
+   652→                        }
+   653→                      />
+   654→                    </div>
+   655→                  ))}
+   656→                </div>
+   657→              </div>
+   658→
+   659→              {/* Timing */}
+   660→              <div>
+   661→                <Label className="text-xs font-semibold">Timing</Label>
+   662→                <div className="grid grid-cols-3 gap-2 mt-2">
+   663→                  <div>
+   664→                    <Label className="text-[10px] text-muted-foreground">Verify Delay (s)</Label>
+   665→                    <Input
+   666→                      type="number"
+   667→                      value={settings.deposit_verify_delay_seconds}
+   668→                      onChange={(e) => setSettings((s) => ({ ...s, deposit_verify_delay_seconds: e.target.value }))}
+   669→                      className="h-8 text-xs mt-0.5"
+   670→                    />
+   671→                  </div>
+   672→                  <div>
+   673→                    <Label className="text-[10px] text-muted-foreground">Expire (min)</Label>
+   674→                    <Input
+   675→                      type="number"
+   676→                      value={settings.deposit_expire_minutes}
+   677→                      onChange={(e) => setSettings((s) => ({ ...s, deposit_expire_minutes: e.target.value }))}
+   678→                      className="h-8 text-xs mt-0.5"
+   679→                    />
+   680→                  </div>
+   681→                  <div>
+   682→                    <Label className="text-[10px] text-muted-foreground">Max Attempts</Label>
+   683→                    <Input
+   684→                      type="number"
+   685→                      value={settings.deposit_max_verify_attempts}
+   686→                      onChange={(e) => setSettings((s) => ({ ...s, deposit_max_verify_attempts: e.target.value }))}
+   687→                      className="h-8 text-xs mt-0.5"
+   688→                    />
+   689→                  </div>
+   690→                </div>
+   691→              </div>
+   692→            </div>
+   693→          </ScrollArea>
+   694→          <DialogFooter>
+   695→            <Button variant="outline" size="sm" onClick={() => setShowSettings(false)}>
+   696→              Cancel
+   697→            </Button>
+   698→            <Button size="sm" onClick={handleSettingsSave} disabled={settingsLoading} className="bg-emerald-600 hover:bg-emerald-700">
+   699→              {settingsLoading && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+   700→              Save Settings
+   701→            </Button>
+   702→          </DialogFooter>
+   703→        </DialogContent>
+   704→      </Dialog>
+   705→
+   706→      {/* Automation Logs Dialog */}
+   707→      <Dialog open={showLogs} onOpenChange={setShowLogs}>
+   708→        <DialogContent className="sm:max-w-[600px] max-h-[80vh]">
+   709→          <DialogHeader>
+   710→            <DialogTitle className="flex items-center gap-2">
+   711→              <Activity className="h-4 w-4" />
+   712→              Automation Logs
+   713→            </DialogTitle>
+   714→            <DialogDescription className="text-xs">
+   715→              {automation
+   716→                ? `${automation.logsToday} actions today — ${automation.successRate}% success rate — ${automation.successToday} successful, ${automation.errorsToday} errors`
+   717→                : 'No automation data'}
+   718→            </DialogDescription>
+   719→          </DialogHeader>
+   720→          <ScrollArea className="max-h-[55vh] pr-2">
+   721→            {!automation || automation.recentLogs.length === 0 ? (
+   722→              <div className="text-center py-8 text-sm text-muted-foreground">
+   723→                No automation logs yet
+   724→              </div>
+   725→            ) : (
+   726→              <div className="space-y-2">
+   727→                {automation.recentLogs.map((log) => (
+   728→                  <div
+   729→                    key={log.id}
+   730→                    className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-white"
+   731→                  >
+   732→                    <div
+   733→                      className={`h-2 w-2 rounded-full mt-1.5 shrink-0 ${
+   734→                        log.status === 'success' ? 'bg-emerald-500'
+   735→                        : log.status === 'error' ? 'bg-red-500'
+   736→                        : log.status === 'warning' ? 'bg-amber-500'
+   737→                        : 'bg-blue-500'
+   738→                      }`}
+   739→                    />
+   740→                    <div className="flex-1 min-w-0">
+   741→                      <p className="text-xs text-foreground leading-relaxed">{log.message}</p>
+   742→                      <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+   743→                        <Badge variant="outline" className="text-[9px] h-4 px-1">
+   744→                          {log.action.replace(/_/g, ' ')}
+   745→                        </Badge>
+   746→                        {log.deposit && (
+   747→                          <span>
+   748→                            {log.deposit.amount} TK via {log.deposit.paymentMethod}
+   749→                          </span>
+   750→                        )}
+   751→                        <span>{new Date(log.createdAt).toLocaleTimeString()}</span>
+   752→                      </div>
+   753→                    </div>
+   754→                  </div>
+   755→                ))}
+   756→              </div>
+   757→            )}
+   758→          </ScrollArea>
+   759→        </DialogContent>
+   760→      </Dialog>
+   761→    </div>
+   762→  )
+   763→}

@@ -339,3 +339,23 @@ Stage Summary:
 - Fix: `rm -rf .next` + server restart
 - All user and admin features verified working end-to-end
 - Ad watch → countdown → claim reward flow confirmed functional
+
+---
+Task ID: separate-user-admin
+Agent: Main
+Task: Separate user app and admin panel into distinct views
+
+Work Log:
+- Created `/src/components/admin/AdminPanel.tsx` — standalone admin panel with dark header (bg-gray-900), own back button, bot status indicator, badge counts, 10-tab navigation, and dark footer
+- Created `/src/components/user/UserApp.tsx` — standalone user app with white header, own back button, user selector dropdown, 7-tab navigation, and footer
+- Rewrote `/src/app/page.tsx` as a landing page with two large entry cards (User App / Admin Panel), animated stats bar, and gradient background
+- Each app is completely self-contained with its own state, header, footer, and navigation
+- Navigation flow: Landing → click card → enter app → "Go back" button → return to landing
+- Removed debug file server-keeper.js, lint passes clean (0 errors)
+
+Stage Summary:
+- User App and Admin Panel are now fully separated with distinct layouts
+- Landing page at / serves as the entry point with two cards
+- Each app has its own header, navigation, and footer
+- Back button in each app returns to the landing page
+- All features verified working via Agent Browser
