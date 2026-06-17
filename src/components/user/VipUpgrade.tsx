@@ -17,6 +17,7 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  Clock,
 } from 'lucide-react'
 
 interface VipTierData {
@@ -26,6 +27,10 @@ interface VipTierData {
   price: number
   dailyAdLimit: number
   rewardBoost: number
+  rewardPerAd: number
+  minWithdrawal: number
+  maxWithdrawals: number
+  daysToWithdraw: number
   description: string | null
 }
 
@@ -84,11 +89,11 @@ const TIER_STYLES: Record<number, { bg: string; border: string; badgeBg: string;
 }
 
 const TIER_FEATURES: Record<number, string[]> = {
-  0: ['5 ads per day', 'No reward boost', 'Basic support'],
-  1: ['10 ads per day', '+15% reward boost', 'Priority support', 'Referral bonus access'],
-  2: ['15 ads per day', '+30% reward boost', 'Priority support', 'Early access to new ads'],
-  3: ['20 ads per day', '+50% reward boost', 'Premium support', 'Exclusive ad offers', 'Bonus referral rewards'],
-  4: ['25+ ads per day', '+70% reward boost', 'VIP support', 'Exclusive offers', 'Double referral bonus', 'Custom profile badge'],
+  0: ['5 ads per day', '4 TK per ad', 'Min. withdrawal: 20 TK', '1 withdrawal only'],
+  1: ['10 ads per day', '2.50 TK per ad', 'Min. withdrawal: 50 TK', 'Unlimited withdrawals'],
+  2: ['15 ads per day', '2.23 TK per ad', 'Min. withdrawal: 100 TK', 'Unlimited withdrawals'],
+  3: ['20 ads per day', '2.00 TK per ad', 'Min. withdrawal: 200 TK', 'Unlimited withdrawals'],
+  4: ['25 ads per day', '2.50 TK per ad', 'Min. withdrawal: 250 TK', 'Unlimited withdrawals'],
 }
 
 export default function VipUpgrade({ telegramId, userId }: VipUpgradeProps) {
@@ -237,21 +242,28 @@ export default function VipUpgrade({ telegramId, userId }: VipUpgradeProps) {
                       )}
 
                       {/* Stats */}
-                      <div className="flex items-center gap-4 mb-3">
+                      <div className="flex flex-wrap items-center gap-3 mb-3">
                         <div className="flex items-center gap-1.5 text-xs">
                           <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                           <span className="font-semibold">{tier.dailyAdLimit}</span>
                           <span className="text-muted-foreground">ads/day</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-xs">
-                          <Zap className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="font-semibold">+{tier.rewardBoost}%</span>
-                          <span className="text-muted-foreground">rewards</span>
+                          <Zap className="h-3.5 w-3.5 text-emerald-500" />
+                          <span className="font-semibold text-emerald-600">{tier.rewardPerAd} TK</span>
+                          <span className="text-muted-foreground">/ad</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-xs">
-                          <span className="font-semibold">{tier.price}</span>
-                          <span className="text-muted-foreground">TK</span>
+                          <Clock className="h-3.5 w-3.5 text-amber-500" />
+                          <span className="font-semibold text-amber-600">{tier.daysToWithdraw} day{tier.daysToWithdraw !== 1 ? 's' : ''}</span>
+                          <span className="text-muted-foreground">to withdraw</span>
                         </div>
+                        {tier.price > 0 && (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="font-semibold">{tier.price}</span>
+                            <span className="text-muted-foreground">TK</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Features */}

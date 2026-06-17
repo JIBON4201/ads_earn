@@ -39,6 +39,7 @@ import {
   XCircle,
   Loader2,
   Landmark,
+  AlertTriangle,
 } from 'lucide-react'
 
 interface Transaction {
@@ -67,6 +68,13 @@ interface WithdrawalLimits {
   isFreeUser: boolean
 }
 
+interface TierInfo {
+  rewardPerAd: number
+  dailyAdLimit: number
+  minWithdrawal: number
+  daysToWithdraw: number
+}
+
 interface WalletData {
   balance: number
   totalEarned: number
@@ -75,6 +83,7 @@ interface WalletData {
   withdrawalLimits: WithdrawalLimits
   vipLevel: number
   vipName: string
+  tierInfo: TierInfo
   pagination: {
     page: number
     limit: number
@@ -217,15 +226,33 @@ export default function UserWalletComponent({ telegramId, userId }: WalletProps)
                 <span className="text-muted-foreground">Min. Withdrawal</span>
                 <span className="font-semibold text-foreground">{walletData.withdrawalLimits.minAmount} TK</span>
               </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Ad Reward</span>
+                <span className="font-semibold text-emerald-600">{walletData.tierInfo.rewardPerAd} TK/ad</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Daily Earning</span>
+                <span className="font-semibold text-foreground">{(walletData.tierInfo.rewardPerAd * walletData.tierInfo.dailyAdLimit).toFixed(1)} TK/day</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Time to Withdraw</span>
+                <span className="font-semibold text-amber-600 flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {walletData.tierInfo.daysToWithdraw} day{walletData.tierInfo.daysToWithdraw !== 1 ? 's' : ''}
+                </span>
+              </div>
               {walletData.withdrawalLimits.isFreeUser ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Withdrawals Used</span>
+                <div className="flex items-center justify-between pt-1 border-t mt-1">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3 text-amber-500" />
+                    Withdrawals Used
+                  </span>
                   <span className={`font-semibold ${walletData.withdrawalLimits.remainingWithdrawals <= 0 ? 'text-red-600' : 'text-amber-600'}`}>
                     {walletData.withdrawalLimits.totalWithdrawals} / 1 (one-time only)
                   </span>
                 </div>
               ) : (
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between pt-1 border-t mt-1">
                   <span className="text-muted-foreground">Tier</span>
                   <span className="font-medium text-emerald-600">{walletData.vipName} — Unlimited</span>
                 </div>

@@ -22,13 +22,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Account is blocked' }, { status: 403 })
     }
 
-    // Get user's VIP tier for daily limit
+    // Get user's VIP tier for daily limit and reward
     const vipTier = await db.vipTier.findUnique({
       where: { level: user.vipLevel },
     })
 
     const vipDailyLimit = vipTier?.dailyAdLimit ?? 5
     const vipRewardBoost = vipTier?.rewardBoost ?? 0
+    const tierRewardPerAd = vipTier?.rewardPerAd ?? 2
 
     // Count today's total watches
     const todayStart = new Date()
@@ -63,16 +64,17 @@ export async function GET(request: NextRequest) {
         const hasBudget = !ad.totalBudget || ad.totalSpent < ad.totalBudget
         const canWatch = remainingWatches > 0 && hasBudget && todayTotalWatches < vipDailyLimit
 
-        const boostedReward = ad.rewardPoints * (1 + vipRewardBoost / 100)
+        // Use tier's consistent rewardPerAd (not the ad's rewardPoints)
+        const earnedPerAd = tierRewardPerAd
 
         return {
           id: ad.id,
           title: ad.title,
           description: ad.description,
           url: ad.url,
-          rewardPoints: ad.rewardPoints,
-          boostedReward: Math.round(boostedReward * 100) / 100,
-          rewardBoost: vipRewardBoost,
+          rewardPoints: earnedPerAd,
+          boostedReward: earnedPerAd,
+          rewardBoost: 0,
           requiredSeconds: ad.requiredSeconds,
           dailyLimit: Math.min(ad.dailyLimit, vipDailyLimit),
           todayWatchCount: todayAdWatches,
@@ -87,7 +89,8 @@ export async function GET(request: NextRequest) {
       ads: adsWithStatus,
       todayTotalWatches,
       dailyLimit: vipDailyLimit,
-      rewardBoost: vipRewardBoost,
+      rewardPerAd: tierRewardPerAd,
+      minWithdrawal: vipTier?.minWithdrawal ?? 20,
     })
   } catch (error) {
     console.error('User ads fetch error:', error)
@@ -166,9 +169,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ad budget exhausted' }, { status: 400 })
     }
 
-    // Calculate reward with VIP boost
-    const rewardBoost = vipTier?.rewardBoost ?? 0
-    const pointsEarned = Math.round(ad.rewardPoints * (1 + rewardBoost / 100) * 100) / 100
+    // Use tier's consistent rewardPerAd
+    const pointsEarned = vipTier?.rewardPerAd ?? 2
 
     // Create UserAdWatch record (completed immediately for web demo)
     const watch = await db.userAdWatch.create({
@@ -190,7 +192,7 @@ export async function POST(request: NextRequest) {
         type: 'ad_reward',
         amount: pointsEarned,
         balanceAfter: newBalance,
-        description: `Watched ad: ${ad.title}${rewardBoost > 0 ? ` (VIP +${rewardBoost}%)` : ''}`,
+        description: `Watched ad: ${ad.title} (+${pointsEarned} TK)`,
         metadata: JSON.stringify({ adId: ad.id, adTitle: ad.title, watchId: watch.id }),
       },
     })
@@ -217,8 +219,7 @@ export async function POST(request: NextRequest) {
       success: true,
       pointsEarned,
       newBalance,
-      rewardBoost,
-      message: `Earned ${pointsEarned} TK${rewardBoost > 0 ? ` (VIP +${rewardBoost}% boost)` : ''}!`,
+      message: `Earned ${pointsEarned} TK!`,
     })
   } catch (error) {
     console.error('Ad watch completion error:', error)

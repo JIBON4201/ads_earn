@@ -39,7 +39,8 @@ interface AdsData {
   ads: AdItem[]
   todayTotalWatches: number
   dailyLimit: number
-  rewardBoost: number
+  rewardPerAd: number
+  minWithdrawal: number
 }
 
 interface WatchAdsProps {
@@ -197,12 +198,15 @@ export default function WatchAds({ telegramId, userId }: WatchAdsProps) {
               {adsData.todayTotalWatches}/{adsData.dailyLimit}
             </span>
           </div>
-          {adsData.rewardBoost > 0 && (
-            <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1">
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs text-emerald-600 flex items-center gap-1">
               <Zap className="h-3 w-3" />
-              VIP Boost: +{adsData.rewardBoost}% reward on all ads
+              {adsData.rewardPerAd} TK per ad
             </p>
-          )}
+            <p className="text-xs text-muted-foreground">
+              Daily: {(adsData.rewardPerAd * adsData.dailyLimit).toFixed(1)} TK · Min. withdraw: {adsData.minWithdrawal} TK
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -260,7 +264,7 @@ export default function WatchAds({ telegramId, userId }: WatchAdsProps) {
                     ) : (
                       <Gift className="h-4 w-4 mr-2" />
                     )}
-                    {claiming ? 'Claiming...' : `Claim +${watchingAd.boostedReward} TK`}
+                    {claiming ? 'Claiming...' : `Claim +${watchingAd.rewardPoints} TK`}
                   </Button>
                 ) : null}
                 <Button
@@ -327,34 +331,16 @@ export default function WatchAds({ telegramId, userId }: WatchAdsProps) {
                           <Eye className="h-3 w-3" />
                           {ad.remainingWatches}/{ad.dailyLimit} left
                         </span>
-                        {ad.rewardBoost > 0 && (
-                          <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                            <Zap className="h-3 w-3" />
-                            +{ad.rewardBoost}%
-                          </span>
-                        )}
                       </div>
                     </div>
 
                     <div className="text-right shrink-0">
                       <div className="flex flex-col items-end gap-1.5">
                         <div className="text-right">
-                          {ad.rewardBoost > 0 ? (
-                            <div>
-                              <span className="text-xs text-muted-foreground line-through">
-                                {ad.rewardPoints}
-                              </span>
-                              <p className="text-lg font-bold text-emerald-600 leading-tight">
-                                +{ad.boostedReward}
-                                <span className="text-xs font-normal ml-0.5">TK</span>
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="text-lg font-bold text-emerald-600 leading-tight">
-                              +{ad.rewardPoints}
-                              <span className="text-xs font-normal ml-0.5">TK</span>
-                            </p>
-                          )}
+                          <p className="text-lg font-bold text-emerald-600 leading-tight">
+                            +{ad.rewardPoints}
+                            <span className="text-xs font-normal ml-0.5">TK</span>
+                          </p>
                         </div>
                         <Button
                           size="sm"

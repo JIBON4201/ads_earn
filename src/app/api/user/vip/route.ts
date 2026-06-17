@@ -34,6 +34,10 @@ export async function GET(request: NextRequest) {
         price: t.price,
         dailyAdLimit: t.dailyAdLimit,
         rewardBoost: t.rewardBoost,
+        rewardPerAd: t.rewardPerAd,
+        minWithdrawal: t.minWithdrawal,
+        maxWithdrawals: t.maxWithdrawals,
+        daysToWithdraw: Math.ceil(t.minWithdrawal / (t.dailyAdLimit * t.rewardPerAd)),
         description: t.description,
       })),
     })

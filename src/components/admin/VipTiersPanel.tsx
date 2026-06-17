@@ -18,6 +18,7 @@ interface VipTier {
   price: number
   dailyAdLimit: number
   rewardBoost: number
+  rewardPerAd: number
   description: string | null
   minWithdrawal: number
   maxWithdrawals: number
@@ -164,6 +165,19 @@ export default function VipTiersPanel() {
                         onChange={(e) => updateField(tier.id, 'dailyAdLimit', parseInt(e.target.value) || 0)}
                         className="h-8 text-sm"
                       />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs text-muted-foreground">Reward Per Ad (TK)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={Math.round((getField(tier, 'rewardPerAd') as number) * 100) / 100}
+                        onChange={(e) => updateField(tier.id, 'rewardPerAd', parseFloat(e.target.value) || 0)}
+                        className="h-8 text-sm"
+                      />
+                      <p className="text-[10px] text-muted-foreground">
+                        ≈ {Math.ceil((getField(tier, 'minWithdrawal') as number) / ((getField(tier, 'dailyAdLimit') as number) * (getField(tier, 'rewardPerAd') as number) || 1))} day(s) to min. withdrawal
+                      </p>
                     </div>
                     <div className="grid gap-1.5">
                       <Label className="text-xs text-muted-foreground">Reward Boost (%)</Label>

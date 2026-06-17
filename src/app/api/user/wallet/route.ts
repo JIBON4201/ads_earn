@@ -67,6 +67,12 @@ export async function GET(request: NextRequest) {
       },
       vipLevel: user.vipLevel,
       vipName: vipTier?.name ?? 'Free',
+      tierInfo: {
+        rewardPerAd: vipTier?.rewardPerAd ?? 2,
+        dailyAdLimit: vipTier?.dailyAdLimit ?? 5,
+        minWithdrawal: vipTier?.minWithdrawal ?? 20,
+        daysToWithdraw: vipTier ? Math.ceil(vipTier.minWithdrawal / (vipTier.dailyAdLimit * vipTier.rewardPerAd)) : 1,
+      },
       pagination: {
         page,
         limit,

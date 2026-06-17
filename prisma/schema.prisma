@@ -110,6 +110,7 @@ model VipTier {
   price       Float    // in TK
   dailyAdLimit Int
   rewardBoost Float    // percentage, e.g. 20 means 20%
+  rewardPerAd  Float    @default(2) // consistent TK earned per ad watch for this tier
   description String?
   minWithdrawal Float @default(50) // minimum withdrawal amount in TK
   maxWithdrawals Int @default(999) // max lifetime withdrawals (Free=1)

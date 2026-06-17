@@ -6,12 +6,18 @@ async function seed() {
   console.log('🌱 Seeding database...')
 
   // Seed VIP Tiers
+  // rewardPerAd is set so that minWithdrawal is reached in exactly N days:
+  //   Free:      5 ads × 4.00 TK  × 1 day  = 20 TK
+  //   Bronze:   10 ads × 2.50 TK  × 2 days = 50 TK
+  //   Silver:   15 ads × 2.22 TK  × 3 days ≈ 100 TK
+  //   Gold:     20 ads × 2.00 TK  × 5 days = 200 TK
+  //   Platinum: 25 ads × 2.50 TK  × 4 days = 250 TK
   const vipTiers = [
-    { level: 0, name: 'Free', price: 0, dailyAdLimit: 5, rewardBoost: 0, description: 'Basic free tier — 5 ads/day, no reward boost', isActive: true },
-    { level: 1, name: 'Bronze', price: 10, dailyAdLimit: 10, rewardBoost: 15, description: '+15% reward boost, 10 ads/day — 10 TK', isActive: true },
-    { level: 2, name: 'Silver', price: 100, dailyAdLimit: 15, rewardBoost: 30, description: '+30% reward boost, 15 ads/day — 100 TK', isActive: true },
-    { level: 3, name: 'Gold', price: 500, dailyAdLimit: 20, rewardBoost: 50, description: '+50% reward boost, 20 ads/day — 500 TK', isActive: true },
-    { level: 4, name: 'Platinum', price: 1000, dailyAdLimit: 25, rewardBoost: 70, description: '+70% reward boost, 25+ ads/day — 1000 TK', isActive: true },
+    { level: 0, name: 'Free', price: 0, dailyAdLimit: 5, rewardBoost: 0, rewardPerAd: 4.00, minWithdrawal: 20, maxWithdrawals: 1, description: 'Free tier — 5 ads/day, 4 TK/ad, min withdrawal 20 TK (1 time only)', isActive: true },
+    { level: 1, name: 'Bronze', price: 10, dailyAdLimit: 10, rewardBoost: 15, rewardPerAd: 2.50, minWithdrawal: 50, maxWithdrawals: 999, description: 'Bronze — 10 ads/day, 2.50 TK/ad, min withdrawal 50 TK', isActive: true },
+    { level: 2, name: 'Silver', price: 100, dailyAdLimit: 15, rewardBoost: 30, rewardPerAd: 2.23, minWithdrawal: 100, maxWithdrawals: 999, description: 'Silver — 15 ads/day, 2.23 TK/ad, min withdrawal 100 TK', isActive: true },
+    { level: 3, name: 'Gold', price: 500, dailyAdLimit: 20, rewardBoost: 50, rewardPerAd: 2.00, minWithdrawal: 200, maxWithdrawals: 999, description: 'Gold — 20 ads/day, 2.00 TK/ad, min withdrawal 200 TK', isActive: true },
+    { level: 4, name: 'Platinum', price: 1000, dailyAdLimit: 25, rewardBoost: 70, rewardPerAd: 2.50, minWithdrawal: 250, maxWithdrawals: 999, description: 'Platinum — 25 ads/day, 2.50 TK/ad, min withdrawal 250 TK', isActive: true },
   ]
 
   for (const tier of vipTiers) {

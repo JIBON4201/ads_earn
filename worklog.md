@@ -402,3 +402,38 @@ Stage Summary:
 - Below-minimum: "Minimum withdrawal for {TierName} users is {X} TK"
 - Admin can edit min/max per tier in VIP Tiers panel
 - All validated via API tests and Agent Browser
+
+---
+Task ID: consistent-ad-pricing
+Agent: Main
+Task: Set consistent per-ad reward pricing so each VIP tier takes (1,2,3,5,4) days to reach minimum withdrawal
+
+Work Log:
+- Added `rewardPerAd` (Float) field to VipTier schema — determines consistent TK earned per ad watch per tier
+- Calculated per-tier reward values to match exact days-to-withdraw targets:
+  - Free: 4.00 TK/ad × 5 ads × 1 day = 20 TK
+  - Bronze: 2.50 TK/ad × 10 ads × 2 days = 50 TK
+  - Silver: 2.23 TK/ad × 15 ads × 3 days = 100 TK (used 2.23 instead of 2.22 to fix float precision)
+  - Gold: 2.00 TK/ad × 20 ads × 5 days = 200 TK
+  - Platinum: 2.50 TK/ad × 25 ads × 4 days = 250 TK
+- Updated seed.ts with all 5 tiers: rewardPerAd, minWithdrawal (20/50/100/200/250), maxWithdrawals (1/999/999/999/999)
+- Rewrote `/api/user/ads/route.ts` GET: now returns `rewardPerAd` and `minWithdrawal` instead of `rewardBoost`, each ad shows tier's consistent reward
+- Rewrote `/api/user/ads/route.ts` POST: uses `vipTier.rewardPerAd` directly (no more ad.rewardPoints × boost calculation)
+- Updated `/api/user/wallet/route.ts` GET: added `tierInfo` object with rewardPerAd, dailyAdLimit, minWithdrawal, daysToWithdraw
+- Updated `/api/user/vip/route.ts` GET: added rewardPerAd, minWithdrawal, maxWithdrawals, daysToWithdraw to tier response
+- Updated `/api/admin/vip-tiers/route.ts` PATCH: persists rewardPerAd field
+- Updated `WatchAds.tsx`: shows "2 TK per ad" and "Daily: 40.0 TK · Min. withdraw: 200 TK" in header, removed boost display from ad cards
+- Updated `Wallet.tsx`: new info box shows Min. Withdrawal, Ad Reward (TK/ad), Daily Earning (TK/day), Time to Withdraw (days), plus Free user 1-withdrawal warning with AlertTriangle icon
+- Updated `VipUpgrade.tsx`: tier cards show ads/day, TK/ad, days to withdraw, and feature list with min withdrawal + withdrawal limit info
+- Updated `VipTiersPanel.tsx`: added Reward Per Ad (TK) input field with step=0.01, shows calculated "≈ N day(s) to min. withdrawal" hint, rounded display values to fix float precision
+- Fixed lint error: added missing Clock import to VipUpgrade.tsx
+- Fixed Silver floating point: 2.22 × 15 × 3 = 99.9 (not 100), changed to 2.23 so Math.ceil gives 3 days
+- Pushed schema, reseeded DB, restarted server
+
+Stage Summary:
+- Consistent ad pricing: each tier has a fixed reward per ad (4/2.50/2.23/2.00/2.50 TK)
+- Days to withdraw: Free=1, Bronze=2, Silver=3, Gold=5, Platinum=4
+- Free users: 1 withdrawal only, 20 TK minimum
+- VIP users: unlimited withdrawals, tier-specific minimums
+- All 4 user-facing tabs updated: Watch Ads, Wallet, VIP, and Admin VIP Tiers
+- Verified via Agent Browser: all values display correctly, no errors in dev log
